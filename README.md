@@ -11,7 +11,7 @@ The package fits a low-rank separable approximation of the covariance kernel, as
 ## Key features
 
 * **Low-rank kernel fit** using JAX-based automatic differentiation or a hybrid global/​local optimiser (cross-entropy + trust-region Newton).  
-* **Memory-lean Galerkin assembly** – every dense \(m^{2d}\) block is replaced by a sum of \(M\) Kronecker products of \(m^{2}\) blocks.  
+* **Memory-lean Galerkin assembly** – every dense $m^{2d}$ block is replaced by a sum of $M$ Kronecker products of $m^{2}$ blocks.  
 * **Tensor Krylov eigensolver** that touches the full matrix only through `matmul`, enabling 2-D and 3-D KL decompositions on a laptop.  
 * Pure-Python, no compiled extensions.
 
@@ -44,36 +44,36 @@ using shifted, $L^{2}$-orthonormal Legendre polynomials $\phi^{(j)}_{i}$ so that
 #### 2.1 Fast quadrature for very large $b_k$
 
 The integrals  
-\[
+$$
 (A_{k})_{i\ell}
 =\int_{a}^{b}\!\!\int_{a}^{b}
 e^{-\,b_k(x-y)^{2}}\,
 \phi_i(y)\,\phi_\ell(x)\,dy\,dx
-\]
-become numerically challenging when \(b_k\gg1\): the Gaussian ridge collapses onto the
-diagonal \(x=y\) and a naive Gauss–Legendre rule needs
-\(\mathcal O(\sqrt{b_k})\) points to see it.  
-We keep the cost **independent of** \(b_k\) with two tricks.  
+$$
+become numerically challenging when $b_k\gg1$: the Gaussian ridge collapses onto the
+diagonal $x=y$ and a naive Gauss–Legendre rule needs
+$\mathcal O(\sqrt{b_k})$ points to see it.  
+We keep the cost **independent of** $b_k$ with two tricks.  
 
 1. **Duffy‐type mapping**  
-   * Split the square \([a,b]^2\) along its diagonal into two triangles.  
+   * Split the square $[a,b]^2$ along its diagonal into two triangles.  
    * Map each triangle back to the unit square so that the diagonal becomes a
      coordinate axis:
-     \[
+     $$
        (x,y)\;\longrightarrow\;
        (x,\;y)=(\tilde x,\,(1-\tilde y)\tilde x)
        \quad\text{or}\quad
        (x,y)=(1-\tilde x,\,( \tilde y-1)\tilde x+1).
-     \]
-     The kernel transforms to \(\tilde x\,e^{-\,b_k\tilde x^{2}\tilde y^{2}}\) and no longer sharply aligned with the diagonal.
+     $$
+     The kernel transforms to $\tilde x\,e^{-\,b_k\tilde x^{2}\tilde y^{2}}$ and no longer sharply aligned with the diagonal.
 
 2. **Adaptive stretching**  
    To keep the remaining peak resolvable with a *fixed* Gauss–Legendre grid we stretch the coordinates with a simple power transformation:
 
-   \[
+   $$
    \hat x = \tilde x^{\,n}, \qquad \hat y = \tilde y^{\,n}, \qquad n\in(0,\infty).
    \tag{2}
-   \]
+   $$
 
 
 
@@ -117,7 +117,7 @@ A lightweight power-iteration + Rayleigh-Ritz routine to work entirely with the 
 
 ## References
 
-* M. Béreš, *Efficient Numerical Approximation of the Karhunen-Loève Decomposition* (PhD thesis, 2023) – Algorithmic foundations (§ 2.4)&#x20;
+* M. Béreš, *Efficient Numerical Approximation of the Karhunen-Loève Decomposition* (PhD thesis, 2023) – Algorithmic foundations.
 * R. Beylkin & G. Mohlenkamp, “Algorithms for numerical analysis in high dimensions,” *PNAS* 102-27 (2005).
 * D. Kressner & C. Tobler, “Krylov subspace methods for tensor structured linear systems,” *SIAM J. Sci. Comput.*, 2011.
 
