@@ -5,6 +5,8 @@ from .kernel_fit import (
     gauss_legendre_rule,
     fit_exp_sum,
     OptimiserOptions,
+    DEStats,
+    NewtonStats,
     newton_with_line_search,
     bisection_line_search,
 )
@@ -14,6 +16,8 @@ __all__ = [
     "gauss_legendre_rule",
     "fit_exp_sum",
     "OptimiserOptions",
+    "DEStats",
+    "NewtonStats",
     "newton_with_line_search",
     "bisection_line_search",
 ]
