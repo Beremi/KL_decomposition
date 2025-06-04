@@ -23,7 +23,7 @@ The package fits a low-rank separable approximation of the covariance kernel, as
 
 The isotropic kernel is fitted in 1-D distance $d=\lVert\mathbf x-\mathbf y\rVert$:
 
-$$C(d)\;\approx\;\sum_{k=1}^{M} a_k e^{-b_k d^{2}},$$
+![img](https://latex.codecogs.com/svg.image?{\color{Gray}C(d)\approx\sum_{k=1}^{M}%20a_k%20e^{-b_k%20d^{2}},})
 
 with $a_k,b_k>0$ optimised by differential evolution + Newton search.
 
@@ -31,19 +31,17 @@ with $a_k,b_k>0$ optimised by differential evolution + Newton search.
 
 For each exponential term we form the 1-D block
 
-$$\bigl(A^{(j)}_{k}\bigr)_{i\ell}=\int_{a_j}^{b_j}\!\!\int_{a_j}^{b_j}
-e^{-b_k(x-y)^{2}}\,
-\phi^{(j)}_{i}(y)\,\phi^{(j)}_{\ell}(x)\,dy\,dx,$$
+![img](https://latex.codecogs.com/svg.image?{\color{Gray}\left(A^{(j)}_{k}\right)_{i\ell}=\int_{a_j}^{b_j}\int_{a_j}^{b_j}e^{-b_k(x-y)^{2}}\phi^{(j)}_{i}(y)\phi^{(j)}_{\ell}(x)dydx})
+
 
 using shifted, $L^{2}$-orthonormal Legendre polynomials $\phi^{(j)}_{i}$ so that the mass matrix is the identity .
 
 #### 2.1 Fast quadrature for very large $b_k$
 
 The integrals  
-$$(A_{k})_{i\ell}
-=\int_{a}^{b}\!\!\int_{a}^{b}
-e^{-\,b_k(x-y)^{2}}\,
-\phi_i(y)\,\phi_\ell(x)\,dy\,dx$$
+
+![img](https://latex.codecogs.com/svg.image?{\color{Gray}(A_{k})_{i\ell}=\int_{a}^{b}\int_{a}^{b}e^{-b_k(x-y)^{2}}\phi_i(y)\phi_\ell(x)dydx})
+
 become numerically challenging when $b_k\gg1$: the Gaussian ridge collapses onto the
 diagonal $x=y$ and a naive Gauss–Legendre rule needs
 $\mathcal O(\sqrt{b_k})$ points to see it.  
@@ -53,17 +51,16 @@ We keep the cost **independent of** $b_k$ with two tricks.
    * Split the square $[a,b]^2$ along its diagonal into two triangles.  
    * Map each triangle back to the unit square so that the diagonal becomes a
      coordinate axis:
-     $$(x,y)\;\longrightarrow\;
-       (x,\;y)=(\tilde x,\,(1-\tilde y)\tilde x)
-       \quad\text{or}\quad
-       (x,y)=(1-\tilde x,\,( \tilde y-1)\tilde x+1).$$
-     The kernel transforms to $\tilde x\,e^{-\,b_k\tilde x^{2}\tilde y^{2}}$ and no longer sharply aligned with the diagonal.
+
+        ![img](https://latex.codecogs.com/svg.image?%7B%5Ccolor%7BGray%7D%28x%2Cy%29%5Clongrightarrow%28x%2Cy%29%3D%28%5Ctilde%20x%2C%281-%5Ctilde%20y%29%5Ctilde%20x%29%5Cquad%5Ctext%7Bor%7D%5Cquad%28x%2Cy%29%3D%281-%5Ctilde%20x%2C%28%5Ctilde%20y-1%29%5Ctilde%20x%2B1%29.%7D)
+
+     The kernel transforms to $\tilde xe^{-b_k\tilde x^{2}\tilde y^{2}}$ and no longer sharply aligned with the diagonal.
 
 2. **Adaptive stretching**  
    To keep the remaining peak resolvable with a *fixed* Gauss–Legendre grid we stretch the coordinates with a simple power transformation:
 
-   $$\hat x = \tilde x^{\,n}, \qquad \hat y = \tilde y^{\,n}, \qquad n\in(0,\infty).
-   \tag{2}$$
+![img](https://latex.codecogs.com/svg.image?%7B%5Ccolor%7BGray%7D%5Chat%20x%20%3D%20%5Ctilde%20x%5E%7Bn%7D%2C%20%5Cqquad%20%5Chat%20y%20%3D%20%5Ctilde%20y%5E%7Bn%7D%2C%20%5Cqquad%20n%5Cin%280%2C%5Cinfty%29.%20%5Ctag%7B2%7D%7D)
+
 
 
 
@@ -73,20 +70,20 @@ We keep the cost **independent of** $b_k$ with two tricks.
 
 Because $e^{-b_k\lVert\mathbf x-\mathbf y\rVert^{2}}$ factorises over coordinates, the fitted kernel reads
 
-$$c(\mathbf x,\mathbf y)\;\approx\;
-\sum_{k=1}^{M} a_k\prod_{j=1}^{d}e^{-b_k(x_j-y_j)^{2}}. \tag{1}$$
+![img](https://latex.codecogs.com/svg.image?%7B%5Ccolor%7BGray%7Dc%28%5Cmathbf%20x%2C%5Cmathbf%20y%29%5Capprox%0A%5Csum_%7Bk%3D1%7D%5E%7BM%7D%20a_k%5Cprod_%7Bj%3D1%7D%5E%7Bd%7De%5E%7B-b_k%28x_j-y_j%29%5E%7B2%7D%7D.%20%5Ctag%7B1%7D%7D)
+
 
 #### 3.2 Kronecker-product Galerkin matrix
 
 Substituting (1) and the tensor basis $\varphi_{(i_1,\dots,i_d)}=\prod_{j}\phi^{(j)}_{i_j}$ gives
 
-$$A\;=\;\sum_{k=1}^{M} a_k
-\bigotimes_{j=1}^{d} A^{(j)}_{k}, \tag{2}$$
+![img](https://latex.codecogs.com/svg.image?%7B%5Ccolor%7BGray%7D%20A%3D%5Csum_%7Bk%3D1%7D%5E%7BM%7D%20a_k%20%5Cbigotimes_%7Bj%3D1%7D%5E%7Bd%7D%20A%5E%7B%28j%29%7D_%7Bk%7D%2C%20%5Ctag%7B2%7D%7D)
+
 
 a sum of $M$ Kronecker products of size $m^{d}\times m^{d}$ .
 
-*Assembly cost:* $M\,d\,m^{2}$ 2-D integrals instead of $m^{2d}$ 2$d$-D ones.
-*Mat-vec cost:* $O(M\,d\,m^{d+1})$ instead of $O(m^{2d})$; for $d=3,m=20,M=10$ this is a ×133 flop reduction .
+*Assembly cost:* $Mdm^{2}$ 2-D integrals instead of $m^{2d}$ 2$d$-D ones.
+*Mat-vec cost:* $O(Mdm^{d+1})$ instead of $O(m^{2d})$; for $d=3,m=20,M=10$ this is a ×133 flop reduction .
 
 #### 3.3 Iterative solver
 
