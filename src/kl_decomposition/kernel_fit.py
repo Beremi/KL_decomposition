@@ -25,6 +25,7 @@ from numpy.typing import ArrayLike
 from scipy import optimize
 import jax
 import jax.numpy as jnp
+import numba as nb
 
 __all__ = [
     "rectangle_rule",
@@ -83,6 +84,7 @@ class OptimiserOptions:
     local_options: dict | None = None
 
 
+@jax.jit
 def _objective_jax(
     params: jnp.ndarray,
     d: jnp.ndarray,
@@ -101,9 +103,10 @@ def _prepare_jax_funcs(d: np.ndarray, target: np.ndarray, w: np.ndarray, n_terms
     def obj(p):
         return _objective_jax(p, d, target, w, n_terms)
 
-    g = jax.grad(obj)
-    h = jax.hessian(obj)
-    return obj, g, h
+    jitted_obj = jax.jit(obj)
+    jitted_grad = jax.jit(jax.grad(obj))
+    jitted_hess = jax.jit(jax.hessian(obj))
+    return jitted_obj, jitted_grad, jitted_hess
 
 
 def bisection_line_search(
@@ -148,7 +151,10 @@ def newton_with_line_search(
         if np.linalg.norm(g) < tol:
             break
         H = np.asarray(hess(x))
-        step = -np.linalg.solve(H, g)
+        try:
+            step = -np.linalg.solve(H, g)
+        except np.linalg.LinAlgError:
+            step = -g
 
         def line_obj(alpha: float) -> float:
             return obj(x + alpha * step)
@@ -161,6 +167,7 @@ def newton_with_line_search(
     return x
 
 
+@nb.njit(cache=True)
 def _objective(
     params: np.ndarray,
     d: np.ndarray,
