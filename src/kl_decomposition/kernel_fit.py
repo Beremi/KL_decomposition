@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Tuple, Literal
 import functools
+import time
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -32,6 +33,8 @@ __all__ = [
     "rectangle_rule",
     "gauss_legendre_rule",
     "fit_exp_sum",
+    "DEStats",
+    "NewtonStats",
 ]
 
 
@@ -83,6 +86,25 @@ class OptimiserOptions:
 
     de_options: dict | None = None
     local_options: dict | None = None
+
+
+@dataclass
+class DEStats:
+    """Statistics returned by the differential evolution."""
+
+    iterations: int
+    best_score: float
+    eval_count: int
+    history: list
+    runtime: float
+
+
+@dataclass
+class NewtonStats:
+    """Statistics for Newton optimisation."""
+
+    iterations: int
+    runtime: float
 
 
 @functools.partial(jax.jit, static_argnums=(4,))
@@ -145,10 +167,14 @@ def newton_with_line_search(
     *,
     max_iter: int = 10,
     tol: float = 1e-6,
-) -> np.ndarray:
+    return_stats: bool = False,
+) -> tuple[np.ndarray, NewtonStats] | np.ndarray:
     x = np.asarray(x0, dtype=float)
+    start = time.time()
+    n_iter = 0
     for _ in range(max_iter):
         g = np.asarray(grad(x))
+        n_iter += 1
         if np.linalg.norm(g) < tol:
             break
         H = np.asarray(hess(x))
@@ -165,6 +191,9 @@ def newton_with_line_search(
 
         alpha = bisection_line_search(line_obj, line_grad)
         x = x + alpha * step
+    runtime = time.time() - start
+    if return_stats:
+        return x, NewtonStats(n_iter, runtime)
     return x
 
 
@@ -185,28 +214,54 @@ def _objective(
 
 def _differential_evolution(
     obj: Callable[[np.ndarray], float],
-    bounds: list[tuple[float, float]],
+    bounds: list[tuple[float, float]] | None,
     *,
     max_gen: int = 100,
     pop_size: int = 15,
     rng: np.random.Generator | None = None,
     newton: Callable[[np.ndarray], np.ndarray] | None = None,
     n_newton: int = 0,
+    mean: np.ndarray | float | None = None,
+    sigma: np.ndarray | float | None = None,
+    return_stats: bool = False,
 ) -> np.ndarray:
-    dim = len(bounds)
+    if bounds is not None:
+        dim = len(bounds)
+    else:
+        if mean is None:
+            raise ValueError("mean must be provided when bounds is None")
+        dim = len(np.atleast_1d(mean))
     rng = rng or np.random.default_rng()
-    lower = np.array([b[0] for b in bounds])
-    upper = np.array([b[1] for b in bounds])
-    pop = rng.uniform(size=(pop_size, dim))
-    pop = lower + pop * (upper - lower)
+    start = time.time()
+    eval_count = 0
+    if bounds is not None:
+        lower = np.array([b[0] for b in bounds])
+        upper = np.array([b[1] for b in bounds])
+        if mean is None:
+            pop = rng.uniform(size=(pop_size, dim))
+            pop = lower + pop * (upper - lower)
+        else:
+            pop = rng.normal(loc=mean, scale=sigma, size=(pop_size, dim))
+            pop = np.clip(pop, lower, upper)
+    else:
+        if mean is None:
+            mean = 0.0
+        if sigma is None:
+            sigma = 1.0
+        pop = rng.normal(loc=mean, scale=sigma, size=(pop_size, dim))
     scores = np.array([obj(ind) for ind in pop])
+    eval_count += pop_size
+    history: list[float] = []
     for _ in range(max_gen):
         for i in range(pop_size):
             a, b, c = pop[rng.choice(pop_size, 3, replace=False)]
-            mutant = np.clip(a + 0.8 * (b - c), lower, upper)
+            mutant = a + 0.8 * (b - c)
+            if bounds is not None:
+                mutant = np.clip(mutant, lower, upper)
             cross = rng.random(dim) < 0.9
             trial = np.where(cross, mutant, pop[i])
             score = obj(trial)
+            eval_count += 1
             if score < scores[i]:
                 pop[i] = trial
                 scores[i] = score
@@ -215,14 +270,31 @@ def _differential_evolution(
             idx = np.argsort(scores)[:n_newton]
             for i in idx:
                 refined = newton(pop[i])
-                refined = np.clip(refined, lower, upper)
+                if isinstance(refined, tuple):
+                    refined = refined[0]
+                if bounds is not None:
+                    refined = np.clip(refined, lower, upper)
                 s = obj(refined)
+                eval_count += 1
                 if s < scores[i]:
                     pop[i] = refined
                     scores[i] = s
 
+        history.append(float(np.min(scores)))
+
+    runtime = time.time() - start
     best_idx = int(np.argmin(scores))
-    return pop[best_idx]
+    best = pop[best_idx]
+    if return_stats:
+        stats = DEStats(
+            iterations=max_gen,
+            best_score=float(scores[best_idx]),
+            eval_count=eval_count,
+            history=history,
+            runtime=runtime,
+        )
+        return best, stats
+    return best
 
 
 def fit_exp_sum(
@@ -232,10 +304,13 @@ def fit_exp_sum(
     func: Callable[[ArrayLike], ArrayLike],
     *,
     optimiser: OptimiserOptions | None = None,
-    method: Literal["de", "de_newton"] = "de",
+    method: Literal["de", "de_newton", "de_ls"] = "de",
     max_gen: int = 100,
     pop_size: int = 15,
     n_newton: int = 2,
+    de_mean: ArrayLike | None = None,
+    de_sigma: ArrayLike | None = None,
+    return_info: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Fit ``func`` on ``x`` with weights ``w`` by a sum of exponentials.
 
@@ -249,10 +324,11 @@ def fit_exp_sum(
         One-dimensional function to approximate.
     optimiser : OptimiserOptions, optional
         Parameters forwarded to the optimisation routines.
-    method : {"de", "de_newton"}, optional
+    method : {"de", "de_newton", "de_ls"}, optional
         Optimisation scheme. ``"de"`` uses plain differential evolution,
-        while ``"de_newton"`` applies Newton refinement with bisection line
-        search to the best individuals in each generation.
+        ``"de_newton"`` applies Newton refinement, and ``"de_ls"`` performs
+        differential evolution only on the ``b_i`` parameters with the
+        ``a_i`` coefficients obtained by weighted least squares.
     max_gen : int, optional
         Number of generations for the differential evolution.
     pop_size : int, optional
@@ -260,11 +336,20 @@ def fit_exp_sum(
     n_newton : int, optional
         Number of individuals to refine with Newton in each generation
         when ``method='de_newton'``.
+    de_mean, de_sigma : array_like, optional
+        Mean and standard deviation for the initial population of the
+        differential evolution.
+    return_info : bool, optional
+        If ``True``, return optimisation statistics in addition to the
+        fitted coefficients.
 
     Returns
     -------
     a, b : ndarray
-        Arrays of positive coefficients of length ``N``.
+        Arrays of coefficients of length ``N``.
+    info : DEStats, optional
+        Returned when ``return_info`` is ``True`` and contains
+        convergence statistics of the optimisation.
     """
     x = np.asarray(x, dtype=float)
     w = np.asarray(w, dtype=float)
@@ -278,30 +363,67 @@ def fit_exp_sum(
         return _objective(p, x, target, w, n_terms)
 
     if method == "de":
-        params = _differential_evolution(
+        params, info = _differential_evolution(
             obj,
             bounds,
             max_gen=max_gen,
             pop_size=pop_size,
             rng=None,
+            mean=de_mean,
+            sigma=de_sigma,
+            return_stats=True,
         )
     elif method == "de_newton":
         jax_obj, jax_grad, jax_hess = _prepare_jax_funcs(x, target, w, n_terms)
 
         def newton_fn(p: np.ndarray) -> np.ndarray:
-            return newton_with_line_search(p, jax_obj, jax_grad, jax_hess)
+            return newton_with_line_search(p, jax_obj, jax_grad, jax_hess)[0]
 
-        params = _differential_evolution(
+        params, info = _differential_evolution(
             obj,
             bounds,
             max_gen=max_gen,
             pop_size=pop_size,
             newton=newton_fn,
             n_newton=n_newton,
+            mean=de_mean,
+            sigma=de_sigma,
+            return_stats=True,
         )
+    elif method == "de_ls":
+        def obj_b(b_params: np.ndarray) -> float:
+            b_sorted = np.sort(b_params)
+            F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
+            A = F * np.sqrt(w)[:, None]
+            y = target * np.sqrt(w)
+            a_ls, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+            pred = F @ a_ls
+            diff = pred - target
+            return float(np.sum(w * diff * diff))
+
+        params_b, info = _differential_evolution(
+            obj_b,
+            None,
+            max_gen=max_gen,
+            pop_size=pop_size,
+            mean=de_mean,
+            sigma=de_sigma,
+            return_stats=True,
+        )
+        b_sorted = np.sort(params_b)
+        F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
+        A = F * np.sqrt(w)[:, None]
+        y = target * np.sqrt(w)
+        a_ls, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+        params = np.concatenate([a_ls, b_sorted])
     else:
         raise ValueError(f"Unknown method: {method}")
 
     a = np.exp(params[:n_terms])
     b = np.exp(params[n_terms:])
+    if method == "de_ls":
+        a = params[:n_terms]
+        b = params[n_terms:]
+    if return_info:
+        return a, b, info
     return a, b
