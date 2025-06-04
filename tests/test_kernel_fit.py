@@ -5,6 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from kl_decomposition import rectangle_rule, fit_exp_sum
+from kl_decomposition.kernel_fit import _objective_jax
+import jax.numpy as jnp
 
 
 class TestKernelFit(unittest.TestCase):
@@ -14,6 +16,14 @@ class TestKernelFit(unittest.TestCase):
         a, b = fit_exp_sum(1, x, w, f, method="de")
         self.assertTrue(np.allclose(a, 2.0, rtol=1e-2, atol=1e-2))
         self.assertTrue(np.allclose(b, 3.0, rtol=1e-2, atol=1e-2))
+
+    def test_objective_jax_static_indexing(self):
+        params = jnp.zeros(2)
+        x = jnp.linspace(0.0, 1.0, 5)
+        w = jnp.ones_like(x)
+        target = jnp.exp(-3.0 * x ** 2)
+        val = _objective_jax(params, x, target, w, 1)
+        self.assertIsInstance(float(val.block_until_ready()), float)
 
 
 if __name__ == "__main__":
