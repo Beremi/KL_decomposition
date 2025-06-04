@@ -3,7 +3,7 @@
 This module implements routines for fitting a covariance function
 with a sum of exponentials
 
-    C(d) \approx \sum_{i=1}^{N} a_i * exp(-b_i * d**2)
+    C(d) \\approx \\sum_{i=1}^{N} a_i * exp(-b_i * d**2)
 
 where ``a_i, b_i > 0``.  The coefficients are found by solving a
 non-linear least squares problem using a combination of global
