@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Iterable, Tuple, Literal
+import functools
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -84,7 +85,7 @@ class OptimiserOptions:
     local_options: dict | None = None
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnums=(4,))
 def _objective_jax(
     params: jnp.ndarray,
     d: jnp.ndarray,
