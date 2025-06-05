@@ -107,7 +107,7 @@ class NewtonStats:
 
 
 @functools.partial(jax.jit, static_argnums=(4,))
-def _objective_jax(
+def _objective_jax_de(
     params: jnp.ndarray,
     d: jnp.ndarray,
     target: jnp.ndarray,
@@ -121,15 +121,35 @@ def _objective_jax(
     return jnp.sum(w * diff * diff)
 
 
+@functools.partial(jax.jit, static_argnums=(4,))
+def _objective_jax_newton(
+    params: jnp.ndarray,
+    d: jnp.ndarray,
+    target: jnp.ndarray,
+    w: jnp.ndarray,
+    n_terms: int,
+) -> jnp.ndarray:
+    a = params[:n_terms]
+    b = jnp.exp(params[n_terms:])
+    pred = jnp.sum(a[:, None] * jnp.exp(-b[:, None] * d[None, :] ** 2), axis=0)
+    diff = pred - target
+    return jnp.sum(w * diff * diff)
+
+
 def _prepare_jax_funcs(
     d: np.ndarray,
     target: np.ndarray,
     w: np.ndarray,
     n_terms: int,
     compiled: bool = True,
+    newton: bool = False,
 ):
-    def obj(p):
-        return _objective_jax(p, d, target, w, n_terms)
+    if newton:
+        def obj(p):
+            return _objective_jax_newton(p, d, target, w, n_terms)
+    else:
+        def obj(p):
+            return _objective_jax_de(p, d, target, w, n_terms)
 
     if compiled:
         jitted_obj = jax.jit(obj)
@@ -144,9 +164,14 @@ def _prepare_numpy_funcs(
     target: np.ndarray,
     w: np.ndarray,
     n_terms: int,
+    newton: bool = False,
 ):
-    def obj(p: np.ndarray) -> float:
-        return _objective_py(p, d, target, w, n_terms)
+    if newton:
+        def obj(p: np.ndarray) -> float:
+            return _objective_py_newton(p, d, target, w, n_terms)
+    else:
+        def obj(p: np.ndarray) -> float:
+            return _objective_py_de(p, d, target, w, n_terms)
 
     def grad(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:
         g = np.zeros_like(p)
@@ -177,30 +202,33 @@ def _prepare_numpy_funcs(
 
 def bisection_line_search(
     f: Callable[[float], float],
-    df: Callable[[float], float],
     a: float = -1.0,
     b: float = 2.0,
     *,
     tol: float = 1e-6,
     max_iter: int = 20,
 ) -> tuple[float, int]:
-    fa = df(a)
-    fb = df(b)
-    if fa == 0:
-        return a, 0
-    if fb == 0:
-        return b, 0
+    """Minimise ``f`` on ``[a, b]`` by a golden-section search."""
+
+    phi = (np.sqrt(5.0) - 1.0) / 2.0
+    c = b - phi * (b - a)
+    d = a + phi * (b - a)
+    fc = f(c)
+    fd = f(d)
     steps = 0
+
     for _ in range(max_iter):
         steps += 1
-        mid = 0.5 * (a + b)
-        fm = df(mid)
-        if abs(fm) < tol:
-            return mid, steps
-        if fa * fm < 0:
-            b, fb = mid, fm
+        if fc < fd:
+            b, d, fd = d, c, fc
+            c = b - phi * (b - a)
+            fc = f(c)
         else:
-            a, fa = mid, fm
+            a, c, fc = c, d, fd
+            d = a + phi * (b - a)
+            fd = f(d)
+        if b - a < tol:
+            break
     return 0.5 * (a + b), steps
 
 
@@ -213,7 +241,7 @@ def newton_with_line_search(
     max_iter: int = 10,
     tol: float = 1e-6,
     compiled: bool = True,
-    return_stats: bool = False,
+    verbose: bool = False,
 ) -> tuple[np.ndarray, NewtonStats] | np.ndarray:
     x = np.asarray(x0, dtype=float)
     start = time.time()
@@ -234,26 +262,19 @@ def newton_with_line_search(
         def line_obj(alpha: float) -> float:
             return obj(x + alpha * step)
 
-        def line_grad(alpha: float) -> float:
-            if compiled:
-                return float(jax.grad(line_obj)(alpha))
-            eps = 1e-6
-            return (line_obj(alpha + eps) - line_obj(alpha - eps)) / (2 * eps)
-
-        alpha, ls_steps = bisection_line_search(line_obj, line_grad)
-        print(
-            f"iter {i}: grad_norm={np.linalg.norm(g):.2e}, "
-            f"alpha={alpha:.2e}, ls_steps={ls_steps}"
-        )
+        alpha, ls_steps = bisection_line_search(line_obj)
+        if verbose:
+            print(
+                f"iter {i}: grad_norm={np.linalg.norm(g):.2e}, "
+                f"alpha={alpha:.2e}, ls_steps={ls_steps}"
+            )
         x = x + alpha * step
     runtime = time.time() - start
-    if return_stats:
-        return x, NewtonStats(n_iter, runtime)
-    return x
+    return x, NewtonStats(n_iter, runtime)
 
 
 @nb.njit(cache=True)
-def _objective(
+def _objective_de(
     params: np.ndarray,
     d: np.ndarray,
     target: np.ndarray,
@@ -267,7 +288,7 @@ def _objective(
     return np.sum(w * diff * diff)
 
 
-def _objective_py(
+def _objective_py_de(
     params: np.ndarray,
     d: np.ndarray,
     target: np.ndarray,
@@ -275,6 +296,20 @@ def _objective_py(
     n_terms: int,
 ) -> float:
     a = np.exp(params[:n_terms])
+    b = np.exp(params[n_terms:])
+    pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
+    diff = pred - target
+    return np.sum(w * diff * diff)
+
+
+def _objective_py_newton(
+    params: np.ndarray,
+    d: np.ndarray,
+    target: np.ndarray,
+    w: np.ndarray,
+    n_terms: int,
+) -> float:
+    a = params[:n_terms]
     b = np.exp(params[n_terms:])
     pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
     diff = pred - target
@@ -292,7 +327,7 @@ def _differential_evolution(
     n_newton: int = 0,
     mean: np.ndarray | float | None = None,
     sigma: np.ndarray | float | None = None,
-    return_stats: bool = False,
+    verbose: bool = False,
 ) -> np.ndarray:
     if mean is None:
         mean = 1.0
@@ -315,7 +350,7 @@ def _differential_evolution(
     scores = np.array([obj(ind) for ind in pop])
     eval_count += pop_size
     history: list[float] = []
-    for _ in range(max_gen):
+    for gen in range(max_gen):
         for i in range(pop_size):
             a, b, c = pop[rng.choice(pop_size, 3, replace=False)]
             mutant = a + 0.8 * (b - c)
@@ -343,21 +378,22 @@ def _differential_evolution(
                     pop[i] = refined
                     scores[i] = s
 
-        history.append(float(np.min(scores)))
+        best_gen = float(np.min(scores))
+        history.append(best_gen)
+        if verbose:
+            print(f"gen {gen}: best_score={best_gen:.2e}")
 
     runtime = time.time() - start
     best_idx = int(np.argmin(scores))
     best = pop[best_idx]
-    if return_stats:
-        stats = DEStats(
-            iterations=max_gen,
-            best_score=float(scores[best_idx]),
-            eval_count=eval_count,
-            history=history,
-            runtime=runtime,
-        )
-        return best, stats
-    return best
+    stats = DEStats(
+        iterations=max_gen,
+        best_score=float(scores[best_idx]),
+        eval_count=eval_count,
+        history=history,
+        runtime=runtime,
+    )
+    return best, stats
 
 
 def fit_exp_sum(
@@ -375,8 +411,7 @@ def fit_exp_sum(
     de_sigma: ArrayLike | None = None,
     newton_max_iter: int = 10,
     compiled: bool = True,
-    return_info: bool = False,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, DEStats]:
     """Fit ``func`` on ``x`` with weights ``w`` by a sum of exponentials.
 
     Parameters
@@ -410,17 +445,13 @@ def fit_exp_sum(
         Maximum Newton iterations when ``method='de_newton'``.
     compiled : bool, optional
         If ``False``, use pure NumPy routines without JIT compilation.
-    return_info : bool, optional
-        If ``True``, return optimisation statistics in addition to the
-        fitted coefficients.
 
     Returns
     -------
     a, b : ndarray
         Arrays of coefficients of length ``N``.
-    info : DEStats, optional
-        Returned when ``return_info`` is ``True`` and contains
-        convergence statistics of the optimisation.
+    info : DEStats
+        Convergence statistics of the optimisation.
     """
     x = np.asarray(x, dtype=float)
     w = np.asarray(w, dtype=float)
@@ -439,7 +470,7 @@ def fit_exp_sum(
     else:
         de_sigma = np.asarray(de_sigma, dtype=float)
 
-    objective_fn = _objective if compiled else _objective_py
+    objective_fn = _objective_de if compiled else _objective_py_de
 
     def obj(p: np.ndarray) -> float:
         return objective_fn(p, x, target, w, n_terms)
@@ -453,24 +484,26 @@ def fit_exp_sum(
             rng=None,
             mean=de_mean,
             sigma=de_sigma,
-            return_stats=True,
+            verbose=False,
         )
     elif method in {"de_newton", "de_newton1"}:
         if compiled:
             obj_n, grad_n, hess_n = _prepare_jax_funcs(
-                x, target, w, n_terms, compiled=True
+                x, target, w, n_terms, compiled=True, newton=True
             )
         else:
             obj_n, grad_n, hess_n = _prepare_numpy_funcs(
-                x, target, w, n_terms
+                x, target, w, n_terms, newton=True
             )
 
         max_it = 1 if method == "de_newton1" else newton_max_iter
 
         def newton_fn(p: np.ndarray) -> np.ndarray:
-            return newton_with_line_search(
-                p, obj_n, grad_n, hess_n, max_iter=max_it, compiled=compiled
-            )[0]
+            start = np.concatenate([np.exp(p[:n_terms]), p[n_terms:]])
+            refined, _ = newton_with_line_search(
+                start, obj_n, grad_n, hess_n, max_iter=max_it, compiled=compiled
+            )
+            return np.concatenate([np.log(refined[:n_terms]), refined[n_terms:]])
 
         params, info = _differential_evolution(
             obj,
@@ -481,7 +514,7 @@ def fit_exp_sum(
             n_newton=n_newton,
             mean=de_mean,
             sigma=de_sigma,
-            return_stats=True,
+            verbose=False,
         )
     elif method == "de_ls":
         def obj_b(b_params: np.ndarray) -> float:
@@ -501,7 +534,7 @@ def fit_exp_sum(
             pop_size=pop_size,
             mean=de_mean,
             sigma=de_sigma,
-            return_stats=True,
+            verbose=False,
         )
         b_sorted = np.sort(params_b)
         F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
@@ -517,6 +550,4 @@ def fit_exp_sum(
     if method == "de_ls":
         a = params[:n_terms]
         b = params[n_terms:]
-    if return_info:
-        return a, b, info
-    return a, b
+    return a, b, info
