@@ -32,6 +32,22 @@ class TestKernelFit(unittest.TestCase):
         self.assertEqual(len(a), 1)
         self.assertEqual(len(b), 1)
 
+    def test_de_ls(self):
+        x, w = rectangle_rule(0.0, 2.0, 50)
+        f = lambda t: 2.0 * np.exp(-3.0 * t**2) + 0.5 * np.exp(-1.0 * t**2)
+        a, b, info = fit_exp_sum(
+            2,
+            x,
+            w,
+            f,
+            method="de_ls",
+            max_gen=10,
+            pop_size=20,
+        )
+        self.assertEqual(len(a), 2)
+        self.assertEqual(len(b), 2)
+        self.assertLess(info.best_score, 1e-3)
+
 
 if __name__ == "__main__":
     unittest.main()
