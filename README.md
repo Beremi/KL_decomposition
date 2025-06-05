@@ -36,6 +36,11 @@ For each exponential term we form the 1-D block
 
 using shifted, $L^{2}$-orthonormal Legendre polynomials $\phi^{(j)}_{i}$ so that the mass matrix is the identity .
 
+Example usage::
+
+    from kl_decomposition import assemble_block
+    A = assemble_block((0.0, 1.0), b=1.0, n=3)
+
 #### 2.1 Fast quadrature for very large $b_k$
 
 The integrals  
