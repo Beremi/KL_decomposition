@@ -18,13 +18,12 @@ simple building blocks.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable, Tuple, Literal
+from typing import Callable, Tuple, Literal
 import functools
 import time
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import optimize
 import jax
 import jax.numpy as jnp
 import numba as nb
@@ -179,8 +178,8 @@ def _prepare_numpy_funcs(
 def bisection_line_search(
     f: Callable[[float], float],
     df: Callable[[float], float],
-    a: float = 0.0,
-    b: float = 1.0,
+    a: float = -1.0,
+    b: float = 2.0,
     *,
     tol: float = 1e-6,
     max_iter: int = 20,
@@ -188,9 +187,9 @@ def bisection_line_search(
     fa = df(a)
     fb = df(b)
     if fa == 0:
-        return a
+        return a, 0
     if fb == 0:
-        return b
+        return b, 0
     steps = 0
     for _ in range(max_iter):
         steps += 1
@@ -427,7 +426,7 @@ def fit_exp_sum(
     w = np.asarray(w, dtype=float)
     target = np.asarray(func(x), dtype=float)
 
-    opt = optimiser or OptimiserOptions()
+    # opt = optimiser or OptimiserOptions()
 
     bounds = [(-5.0, 5.0)] * (2 * n_terms)
 
