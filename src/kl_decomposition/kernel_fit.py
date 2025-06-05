@@ -546,9 +546,10 @@ def fit_exp_sum(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    a = np.exp(params[:n_terms])
-    b = np.exp(params[n_terms:])
     if method == "de_ls":
         a = params[:n_terms]
         b = params[n_terms:]
+    else:
+        a = np.exp(params[:n_terms])
+        b = np.exp(params[n_terms:])
     return a, b, info
