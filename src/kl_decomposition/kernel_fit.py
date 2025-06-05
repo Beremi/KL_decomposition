@@ -372,8 +372,8 @@ def fit_exp_sum(
     max_gen: int = 100,
     pop_size: int = 15,
     n_newton: int = 2,
-    de_mean: ArrayLike = 1.0,
-    de_sigma: ArrayLike = 1.0,
+    de_mean: ArrayLike | None = None,
+    de_sigma: ArrayLike | None = None,
     newton_max_iter: int = 10,
     compiled: bool = True,
     return_info: bool = False,
@@ -405,7 +405,8 @@ def fit_exp_sum(
         when ``method='de_newton'``.
     de_mean, de_sigma : array_like, optional
         Mean and standard deviation for the initial population of the
-        differential evolution. Defaults to ``1``.
+        differential evolution. If not provided, arrays of ones are used
+        (length ``2*N`` for the standard methods and ``N`` for ``'de_ls'``).
     newton_max_iter : int, optional
         Maximum Newton iterations when ``method='de_newton'``.
     compiled : bool, optional
@@ -429,6 +430,15 @@ def fit_exp_sum(
     opt = optimiser or OptimiserOptions()
 
     bounds = [(-5.0, 5.0)] * (2 * n_terms)
+
+    if de_mean is None:
+        de_mean = np.ones(n_terms if method == "de_ls" else 2 * n_terms)
+    else:
+        de_mean = np.asarray(de_mean, dtype=float)
+    if de_sigma is None:
+        de_sigma = np.ones_like(de_mean)
+    else:
+        de_sigma = np.asarray(de_sigma, dtype=float)
 
     objective_fn = _objective if compiled else _objective_py
 
