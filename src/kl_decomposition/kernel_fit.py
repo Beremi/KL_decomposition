@@ -140,23 +140,25 @@ def bisection_line_search(
     *,
     tol: float = 1e-6,
     max_iter: int = 20,
-) -> float:
+) -> tuple[float, int]:
     fa = df(a)
     fb = df(b)
     if fa == 0:
         return a
     if fb == 0:
         return b
+    steps = 0
     for _ in range(max_iter):
+        steps += 1
         mid = 0.5 * (a + b)
         fm = df(mid)
         if abs(fm) < tol:
-            return mid
+            return mid, steps
         if fa * fm < 0:
             b, fb = mid, fm
         else:
             a, fa = mid, fm
-    return 0.5 * (a + b)
+    return 0.5 * (a + b), steps
 
 
 def newton_with_line_search(
@@ -172,14 +174,17 @@ def newton_with_line_search(
     x = np.asarray(x0, dtype=float)
     start = time.time()
     n_iter = 0
-    for _ in range(max_iter):
+    for i in range(max_iter):
         g = np.asarray(grad(x))
+        print(f"iter {i}, grad_norm={np.linalg.norm(g):.2e}")
         n_iter += 1
         if np.linalg.norm(g) < tol:
             break
         H = np.asarray(hess(x))
         try:
             step = -np.linalg.solve(H, g)
+            if np.dot(step, g) > 0:
+                step = -g
         except np.linalg.LinAlgError:
             step = -g
 
@@ -189,7 +194,8 @@ def newton_with_line_search(
         def line_grad(alpha: float) -> float:
             return float(jax.grad(line_obj)(alpha))
 
-        alpha = bisection_line_search(line_obj, line_grad)
+        alpha, ls_steps = bisection_line_search(line_obj, line_grad)
+        print(f"  alpha={alpha:.2e}, ls_steps={ls_steps}")
         x = x + alpha * step
     runtime = time.time() - start
     if return_stats:
