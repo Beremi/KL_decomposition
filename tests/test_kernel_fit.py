@@ -48,6 +48,22 @@ class TestKernelFit(unittest.TestCase):
         self.assertEqual(len(b), 2)
         self.assertLess(info.best_score, 1e-3)
 
+    def test_de_ls_nocompile(self):
+        x, w = rectangle_rule(0.0, 2.0, 30)
+        f = lambda t: 2.0 * np.exp(-3.0 * t**2) + 0.5 * np.exp(-1.0 * t**2)
+        a, b, _ = fit_exp_sum(
+            2,
+            x,
+            w,
+            f,
+            method="de_ls",
+            compiled=False,
+            max_gen=5,
+            pop_size=10,
+        )
+        self.assertTrue(np.all(np.isfinite(a)))
+        self.assertTrue(np.all(np.isfinite(b)))
+
 
 if __name__ == "__main__":
     unittest.main()
