@@ -428,8 +428,9 @@ def fit_exp_sum(
         Optimisation scheme. ``"de"`` uses plain differential evolution,
         ``"de_newton"`` applies multi-step Newton refinement, ``"de_newton1"``
         performs only one Newton iteration, and ``"de_ls"`` performs
-        differential evolution only on the ``b_i`` parameters with the
-        ``a_i`` coefficients obtained by weighted least squares.
+        differential evolution only on parameters ``c_i`` such that
+        ``b_i = exp(c_i)``.  The corresponding ``a_i`` coefficients are
+        obtained by weighted least squares.
     max_gen : int, optional
         Number of generations for the differential evolution.
     pop_size : int, optional
@@ -517,8 +518,8 @@ def fit_exp_sum(
             verbose=False,
         )
     elif method == "de_ls":
-        def obj_b(b_params: np.ndarray) -> float:
-            b_sorted = np.sort(b_params)
+        def obj_c(c_params: np.ndarray) -> float:
+            b_sorted = np.sort(np.exp(c_params))
             F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
             A = F * np.sqrt(w)[:, None]
             y = target * np.sqrt(w)
@@ -527,8 +528,8 @@ def fit_exp_sum(
             diff = pred - target
             return float(np.sum(w * diff * diff))
 
-        params_b, info = _differential_evolution(
-            obj_b,
+        params_c, info = _differential_evolution(
+            obj_c,
             None,
             max_gen=max_gen,
             pop_size=pop_size,
@@ -536,7 +537,7 @@ def fit_exp_sum(
             sigma=de_sigma,
             verbose=False,
         )
-        b_sorted = np.sort(params_b)
+        b_sorted = np.sort(np.exp(params_c))
         F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
         A = F * np.sqrt(w)[:, None]
         y = target * np.sqrt(w)
