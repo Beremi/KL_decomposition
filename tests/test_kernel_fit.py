@@ -25,6 +25,13 @@ class TestKernelFit(unittest.TestCase):
         val = _objective_jax(params, x, target, w, 1)
         self.assertIsInstance(float(val.block_until_ready()), float)
 
+    def test_de_newton_one_step_nocompile(self):
+        x, w = rectangle_rule(0.0, 1.0, 20)
+        f = lambda t: 1.0 * np.exp(-2.0 * t ** 2)
+        a, b = fit_exp_sum(1, x, w, f, method="de_newton1", compiled=False)
+        self.assertEqual(len(a), 1)
+        self.assertEqual(len(b), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
