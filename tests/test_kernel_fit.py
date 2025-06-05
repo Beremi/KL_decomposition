@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from kl_decomposition import rectangle_rule, fit_exp_sum
-from kl_decomposition.kernel_fit import _objective_jax
+from kl_decomposition.kernel_fit import _objective_jax_de
 import jax.numpy as jnp
 
 
@@ -13,7 +13,7 @@ class TestKernelFit(unittest.TestCase):
     def test_fit_single_exp(self):
         x, w = rectangle_rule(0.0, 2.0, 50)
         f = lambda t: 2.0 * np.exp(-3.0 * t ** 2)
-        a, b = fit_exp_sum(1, x, w, f, method="de")
+        a, b, _ = fit_exp_sum(1, x, w, f, method="de")
         self.assertTrue(np.allclose(a, 2.0, rtol=1e-2, atol=1e-2))
         self.assertTrue(np.allclose(b, 3.0, rtol=1e-2, atol=1e-2))
 
@@ -22,13 +22,13 @@ class TestKernelFit(unittest.TestCase):
         x = jnp.linspace(0.0, 1.0, 5)
         w = jnp.ones_like(x)
         target = jnp.exp(-3.0 * x ** 2)
-        val = _objective_jax(params, x, target, w, 1)
+        val = _objective_jax_de(params, x, target, w, 1)
         self.assertIsInstance(float(val.block_until_ready()), float)
 
     def test_de_newton_one_step_nocompile(self):
         x, w = rectangle_rule(0.0, 1.0, 20)
         f = lambda t: 1.0 * np.exp(-2.0 * t ** 2)
-        a, b = fit_exp_sum(1, x, w, f, method="de_newton1", compiled=False)
+        a, b, _ = fit_exp_sum(1, x, w, f, method="de_newton1", compiled=False)
         self.assertEqual(len(a), 1)
         self.assertEqual(len(b), 1)
 
