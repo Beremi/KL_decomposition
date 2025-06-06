@@ -56,7 +56,19 @@ def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, qua
     weighted_phi = phi * w
 
     K = np.exp(-coeff_b * (x[:, None] - x[None, :]) ** 2)
-    A = weighted_phi @ K @ weighted_phi.T
+
+    A = np.zeros((n, n))
+    even = np.arange(0, n, 2)
+    odd = np.arange(1, n, 2)
+
+    if even.size:
+        wphi_even = weighted_phi[even]
+        A[np.ix_(even, even)] = wphi_even @ K @ wphi_even.T
+
+    if odd.size:
+        wphi_odd = weighted_phi[odd]
+        A[np.ix_(odd, odd)] = wphi_odd @ K @ wphi_odd.T
+
     return A
 
 
@@ -84,10 +96,26 @@ def assemble_duffy(f: float, degree: int, quad: int,
     phiy2 = leg_vals(degree, y2.ravel()).reshape(degree, *y2.shape)
 
     weight = W * Khat
-    A = (
-        np.einsum("mn,imn,jmn->ij", weight, phix1, phiy1)
-        + np.einsum("mn,imn,jmn->ij", weight, phix2, phiy2)
-    )
+
+    even = np.arange(0, degree, 2)
+    odd = np.arange(1, degree, 2)
+
+    A = np.zeros((degree, degree))
+
+    if even.size:
+        A_even = (
+            np.einsum("mn,imn,jmn->ij", weight, phix1[even], phiy1[even])
+            + np.einsum("mn,imn,jmn->ij", weight, phix2[even], phiy2[even])
+        )
+        A[np.ix_(even, even)] = A_even
+
+    if odd.size:
+        A_odd = (
+            np.einsum("mn,imn,jmn->ij", weight, phix1[odd], phiy1[odd])
+            + np.einsum("mn,imn,jmn->ij", weight, phix2[odd], phiy2[odd])
+        )
+        A[np.ix_(odd, odd)] = A_odd
+
     return A
 
 
@@ -96,7 +124,21 @@ def assemble_gauss2d(f: float, degree: int, quad: int) -> np.ndarray:
     x, wx = gauss_legendre_rule(0.0, 1.0, quad)
     phi = leg_vals(degree, x)
     K = np.exp(-f * (x[:, None] - x[None, :]) ** 2)
-    return phi @ (K * (wx[:, None] * wx[None, :])) @ phi.T
+
+    even = np.arange(0, degree, 2)
+    odd = np.arange(1, degree, 2)
+
+    A = np.zeros((degree, degree))
+
+    if even.size:
+        wphi_even = phi[even] * wx
+        A[np.ix_(even, even)] = wphi_even @ K @ wphi_even.T
+
+    if odd.size:
+        wphi_odd = phi[odd] * wx
+        A[np.ix_(odd, odd)] = wphi_odd @ K @ wphi_odd.T
+
+    return A
 
 
 def assemble_rectangle(f: float, degree: int, m: int) -> np.ndarray:
@@ -105,7 +147,21 @@ def assemble_rectangle(f: float, degree: int, m: int) -> np.ndarray:
     dx = 1.0 / m
     phi = leg_vals(degree, x)
     K = np.exp(-f * (x[:, None] - x[None, :]) ** 2)
-    return phi @ (K * dx * dx) @ phi.T
+
+    even = np.arange(0, degree, 2)
+    odd = np.arange(1, degree, 2)
+
+    A = np.zeros((degree, degree))
+
+    if even.size:
+        wphi_even = phi[even] * dx
+        A[np.ix_(even, even)] = wphi_even @ K @ wphi_even.T
+
+    if odd.size:
+        wphi_odd = phi[odd] * dx
+        A[np.ix_(odd, odd)] = wphi_odd @ K @ wphi_odd.T
+
+    return A
 
 
 def convergence_vs_ref(
