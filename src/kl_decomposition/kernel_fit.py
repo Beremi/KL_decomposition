@@ -665,7 +665,7 @@ def fit_exp_sum_sorted(
         n_newton=n_newton,
         mean=de_mean,
         sigma=de_sigma,
-        verbose=False,
+        verbose=True,
     )
 
     order = np.argsort(params[n_terms:])
