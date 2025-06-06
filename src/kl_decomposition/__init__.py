@@ -18,6 +18,7 @@ from .galerkin import (
     assemble_rectangle,
     convergence_vs_ref,
 )
+from .exp_kernel import exp_kernel_eigen
 
 __all__ = [
     "rectangle_rule",
@@ -34,4 +35,5 @@ __all__ = [
     "assemble_gauss2d",
     "assemble_rectangle",
     "convergence_vs_ref",
+    "exp_kernel_eigen",
 ]

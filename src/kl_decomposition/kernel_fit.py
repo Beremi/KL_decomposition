@@ -27,7 +27,20 @@ from .orthopoly import gauss_legendre_rule
 from numpy.typing import ArrayLike
 import jax
 import jax.numpy as jnp
-import numba as nb
+try:
+    import numba as nb
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    class _NB:
+        def njit(self, *args, **kwargs):
+            if args and callable(args[0]):
+                return args[0]
+
+            def wrapper(func):
+                return func
+
+            return wrapper
+
+    nb = _NB()
 
 __all__ = [
     "rectangle_rule",
