@@ -97,6 +97,7 @@ class DEStats:
     eval_count: int
     history: list
     runtime: float
+    grad_history: list | None = None
 
 
 @dataclass
@@ -334,6 +335,8 @@ def _differential_evolution(
     n_newton: int = 0,
     mean: np.ndarray | float | None = None,
     sigma: np.ndarray | float | None = None,
+    grad: Callable[[np.ndarray], np.ndarray] | None = None,
+    grad_tol: float = 0.0,
     verbose: bool = False,
 ) -> np.ndarray:
     if mean is None:
@@ -357,6 +360,7 @@ def _differential_evolution(
     scores = np.array([obj(ind) for ind in pop])
     eval_count += pop_size
     history: list[float] = []
+    grad_history: list[float] = []
     for gen in range(max_gen):
         for i in range(pop_size):
             a, b, c = pop[rng.choice(pop_size, 3, replace=False)]
@@ -385,20 +389,31 @@ def _differential_evolution(
                     pop[i] = refined
                     scores[i] = s
 
-        best_gen = float(np.min(scores))
+        best_idx = int(np.argmin(scores))
+        best_gen = float(scores[best_idx])
         history.append(best_gen)
-        if verbose:
+        if grad is not None:
+            g_norm = float(np.linalg.norm(grad(pop[best_idx])))
+            grad_history.append(g_norm)
+            if verbose:
+                print(
+                    f"gen {gen}: best_score={best_gen:.2e}, grad_norm={g_norm:.2e}"
+                )
+            if grad_tol > 0 and g_norm < grad_tol:
+                break
+        elif verbose:
             print(f"gen {gen}: best_score={best_gen:.2e}")
 
     runtime = time.time() - start
     best_idx = int(np.argmin(scores))
     best = pop[best_idx]
     stats = DEStats(
-        iterations=max_gen,
+        iterations=len(history),
         best_score=float(scores[best_idx]),
         eval_count=eval_count,
         history=history,
         runtime=runtime,
+        grad_history=grad_history,
     )
     return best, stats
 
@@ -426,6 +441,8 @@ def _differential_evolution_sorted(
     n_newton: int = 0,
     mean: np.ndarray | float | None = None,
     sigma: np.ndarray | float | None = None,
+    grad: Callable[[np.ndarray], np.ndarray] | None = None,
+    grad_tol: float = 0.0,
     verbose: bool = False,
 ) -> tuple[np.ndarray, DEStats]:
     if mean is None:
@@ -441,6 +458,7 @@ def _differential_evolution_sorted(
     scores = np.array([obj(ind) for ind in pop])
     eval_count += pop_size
     history: list[float] = []
+    grad_history: list[float] = []
 
     for gen in range(max_gen):
         for i in range(pop_size):
@@ -468,20 +486,31 @@ def _differential_evolution_sorted(
                     pop[i] = refined
                     scores[i] = s
 
-        best_gen = float(np.min(scores))
+        best_idx = int(np.argmin(scores))
+        best_gen = float(scores[best_idx])
         history.append(best_gen)
-        if verbose:
+        if grad is not None:
+            g_norm = float(np.linalg.norm(grad(pop[best_idx])))
+            grad_history.append(g_norm)
+            if verbose:
+                print(
+                    f"gen {gen}: best_score={best_gen:.2e}, grad_norm={g_norm:.2e}"
+                )
+            if grad_tol > 0 and g_norm < grad_tol:
+                break
+        elif verbose:
             print(f"gen {gen}: best_score={best_gen:.2e}")
 
     runtime = time.time() - start
     best_idx = int(np.argmin(scores))
     best = pop[best_idx]
     stats = DEStats(
-        iterations=max_gen,
+        iterations=len(history),
         best_score=float(scores[best_idx]),
         eval_count=eval_count,
         history=history,
         runtime=runtime,
+        grad_history=grad_history,
     )
     return best, stats
 
