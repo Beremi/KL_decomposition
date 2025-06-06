@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.polynomial.legendre import Legendre, legval
 
-from .kernel_fit import gauss_legendre_rule
+from .orthopoly import (
+    gauss_legendre_rule,
+    shifted_legendre,
+    legendre_table,
+)
 
 __all__ = [
     "assemble_block",
@@ -18,17 +21,12 @@ __all__ = [
 
 def _legendre_phi(i: int, x: np.ndarray, a: float, b: float) -> np.ndarray:
     """Evaluate shifted, L2-orthonormal Legendre polynomial."""
-    u = 2.0 * (x - a) / (b - a) - 1.0
-    return np.sqrt((2 * i + 1) / (b - a)) * legval(u, [0.0] * i + [1.0])
+    return shifted_legendre(i, x, a, b)
 
 
 def leg_vals(n_max: int, x: np.ndarray) -> np.ndarray:
     """Values of orthonormal Legendre polynomials on ``[0, 1]``."""
-    t = 2.0 * x - 1.0
-    vals = np.empty((n_max, x.size))
-    for n in range(n_max):
-        vals[n] = np.sqrt(2 * n + 1) * Legendre.basis(n)(t)
-    return vals
+    return legendre_table(n_max, x)
 
 
 def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, quad_order: int = 40) -> np.ndarray:
@@ -68,9 +66,7 @@ def assemble_duffy(f: float, degree: int, quad: int,
     if gy is None:
         gy = gx
 
-    xi, wx = np.polynomial.legendre.leggauss(quad)
-    xi = 0.5 * (xi + 1.0)
-    wx = 0.5 * wx
+    xi, wx = gauss_legendre_rule(0.0, 1.0, quad)
     X, Y = np.meshgrid(xi, xi, indexing="ij")
     W = np.outer(wx, wx)
 
@@ -97,9 +93,7 @@ def assemble_duffy(f: float, degree: int, quad: int,
 
 def assemble_gauss2d(f: float, degree: int, quad: int) -> np.ndarray:
     """Direct tensor-product Gauss--Legendre on ``[0, 1]``."""
-    x, wx = np.polynomial.legendre.leggauss(quad)
-    x = 0.5 * (x + 1.0)
-    wx = 0.5 * wx
+    x, wx = gauss_legendre_rule(0.0, 1.0, quad)
     phi = leg_vals(degree, x)
     K = np.exp(-f * (x[:, None] - x[None, :]) ** 2)
     return phi @ (K * (wx[:, None] * wx[None, :])) @ phi.T

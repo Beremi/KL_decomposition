@@ -23,6 +23,7 @@ import functools
 import time
 
 import numpy as np
+from .orthopoly import gauss_legendre_rule
 from numpy.typing import ArrayLike
 import jax
 import jax.numpy as jnp
@@ -71,13 +72,6 @@ def rectangle_rule(
     return x, w
 
 
-def gauss_legendre_rule(a: float, b: float, n: int) -> Tuple[np.ndarray, np.ndarray]:
-    """Gauss--Legendre quadrature on ``[a, b]`` with ``n`` points."""
-    x, w = np.polynomial.legendre.leggauss(n)
-    # map from [-1, 1] to [a, b]
-    x = 0.5 * (b - a) * x + 0.5 * (b + a)
-    w = 0.5 * (b - a) * w
-    return x, w
 
 
 @dataclass
