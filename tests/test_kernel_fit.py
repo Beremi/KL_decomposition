@@ -80,6 +80,22 @@ class TestKernelFit(unittest.TestCase):
         self.assertEqual(len(a), 1)
         self.assertEqual(len(b), 1)
 
+    def test_sorted_newton_compiled(self):
+        x, w = rectangle_rule(0.0, 1.0, 20)
+        f = lambda t: np.exp(-2.0 * t**2)
+        a, b, _ = fit_exp_sum_sorted(
+            1,
+            x,
+            w,
+            f,
+            max_gen=5,
+            pop_size=10,
+            n_newton=2,
+            compiled=True,
+        )
+        self.assertEqual(len(a), 1)
+        self.assertEqual(len(b), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
