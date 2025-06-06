@@ -32,6 +32,7 @@ __all__ = [
     "rectangle_rule",
     "gauss_legendre_rule",
     "fit_exp_sum",
+    "fit_exp_sum_sorted",
     "DEStats",
     "NewtonStats",
 ]
@@ -145,9 +146,12 @@ def _prepare_jax_funcs(
     newton: bool = False,
 ):
     if newton:
+
         def obj(p):
             return _objective_jax_newton(p, d, target, w, n_terms)
+
     else:
+
         def obj(p):
             return _objective_jax_de(p, d, target, w, n_terms)
 
@@ -167,9 +171,12 @@ def _prepare_numpy_funcs(
     newton: bool = False,
 ):
     if newton:
+
         def obj(p: np.ndarray) -> float:
             return _objective_py_newton(p, d, target, w, n_terms)
+
     else:
+
         def obj(p: np.ndarray) -> float:
             return _objective_py_de(p, d, target, w, n_terms)
 
@@ -194,7 +201,43 @@ def _prepare_numpy_funcs(
                 fpm = obj(p + step_i - step_j)
                 fmp = obj(p - step_i + step_j)
                 fmm = obj(p - step_i - step_j)
-                H[i, j] = (fpp - fpm - fmp + fmm) / (4 * eps ** 2)
+                H[i, j] = (fpp - fpm - fmp + fmm) / (4 * eps**2)
+        return H
+
+    return obj, grad, hess
+
+
+def _prepare_numpy_funcs_sorted(
+    d: np.ndarray,
+    target: np.ndarray,
+    w: np.ndarray,
+    n_terms: int,
+):
+    def obj(p: np.ndarray) -> float:
+        return _objective_py_sorted(p, d, target, w, n_terms)
+
+    def grad(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+        g = np.zeros_like(p)
+        for i in range(len(p)):
+            step = np.zeros_like(p)
+            step[i] = eps
+            g[i] = (obj(p + step) - obj(p - step)) / (2 * eps)
+        return g
+
+    def hess(p: np.ndarray, eps: float = 1e-4) -> np.ndarray:
+        n = len(p)
+        H = np.zeros((n, n))
+        for i in range(n):
+            step_i = np.zeros_like(p)
+            step_i[i] = eps
+            for j in range(n):
+                step_j = np.zeros_like(p)
+                step_j[j] = eps
+                fpp = obj(p + step_i + step_j)
+                fpm = obj(p + step_i - step_j)
+                fmp = obj(p - step_i + step_j)
+                fmm = obj(p - step_i - step_j)
+                H[i, j] = (fpp - fpm - fmp + fmm) / (4 * eps**2)
         return H
 
     return obj, grad, hess
@@ -311,6 +354,23 @@ def _objective_py_newton(
 ) -> float:
     a = params[:n_terms]
     b = np.exp(params[n_terms:])
+    pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
+    diff = pred - target
+    return np.sum(w * diff * diff)
+
+
+def _objective_py_sorted(
+    params: np.ndarray,
+    d: np.ndarray,
+    target: np.ndarray,
+    w: np.ndarray,
+    n_terms: int,
+) -> float:
+    a = np.exp(params[:n_terms])
+    b = np.exp(params[n_terms:])
+    order = np.argsort(b)
+    a = a[order]
+    b = b[order]
     pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
     diff = pred - target
     return np.sum(w * diff * diff)
@@ -518,6 +578,7 @@ def fit_exp_sum(
             verbose=False,
         )
     elif method == "de_ls":
+
         def obj_c(c_params: np.ndarray) -> float:
             b_sorted = np.sort(np.exp(c_params))
             F = np.exp(-b_sorted[None, :] * x[:, None] ** 2)
@@ -552,4 +613,62 @@ def fit_exp_sum(
     else:
         a = np.exp(params[:n_terms])
         b = np.exp(params[n_terms:])
+    return a, b, info
+
+
+def fit_exp_sum_sorted(
+    n_terms: int,
+    x: ArrayLike,
+    w: ArrayLike,
+    func: Callable[[ArrayLike], ArrayLike],
+    *,
+    max_gen: int = 100,
+    pop_size: int = 15,
+    n_newton: int = 2,
+    de_mean: ArrayLike | None = None,
+    de_sigma: ArrayLike | None = None,
+) -> Tuple[np.ndarray, np.ndarray, DEStats]:
+    """Fit ``func`` using differential evolution with sorted Newton steps."""
+
+    x = np.asarray(x, dtype=float)
+    w = np.asarray(w, dtype=float)
+    target = np.asarray(func(x), dtype=float)
+
+    if de_mean is None:
+        de_mean = np.ones(2 * n_terms)
+    else:
+        de_mean = np.asarray(de_mean, dtype=float)
+    if de_sigma is None:
+        de_sigma = np.ones_like(de_mean)
+    else:
+        de_sigma = np.asarray(de_sigma, dtype=float)
+
+    def obj(p: np.ndarray) -> float:
+        return _objective_py_sorted(p, x, target, w, n_terms)
+
+    obj_n, grad_n, hess_n = _prepare_numpy_funcs_sorted(x, target, w, n_terms)
+
+    def newton_fn(p: np.ndarray) -> np.ndarray:
+        order = np.argsort(p[n_terms:])
+        sorted_p = np.concatenate([p[:n_terms][order], p[n_terms:][order]])
+        refined, _ = newton_with_line_search(
+            sorted_p, obj_n, grad_n, hess_n, max_iter=1, compiled=False
+        )
+        return refined
+
+    params, info = _differential_evolution(
+        obj,
+        None,
+        max_gen=max_gen,
+        pop_size=pop_size,
+        newton=newton_fn,
+        n_newton=n_newton,
+        mean=de_mean,
+        sigma=de_sigma,
+        verbose=False,
+    )
+
+    order = np.argsort(params[n_terms:])
+    a = np.exp(params[:n_terms])[order]
+    b = np.exp(params[n_terms:])[order]
     return a, b, info
