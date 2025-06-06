@@ -26,9 +26,8 @@ def leg_vals(n_max: int, x: np.ndarray) -> np.ndarray:
     """Values of orthonormal Legendre polynomials on ``[0, 1]``."""
     t = 2.0 * x - 1.0
     vals = np.empty((n_max, x.size))
-    pref = 1.0 / np.sqrt(2.0)
     for n in range(n_max):
-        vals[n] = np.sqrt(2 * n + 1) * pref * Legendre.basis(n)(t)
+        vals[n] = np.sqrt(2 * n + 1) * Legendre.basis(n)(t)
     return vals
 
 
