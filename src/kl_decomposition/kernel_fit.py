@@ -137,6 +137,24 @@ def _objective_jax_newton(
     return jnp.sum(w * diff * diff)
 
 
+@functools.partial(jax.jit, static_argnums=(4,))
+def _objective_jax_sorted(
+    params: jnp.ndarray,
+    d: jnp.ndarray,
+    target: jnp.ndarray,
+    w: jnp.ndarray,
+    n_terms: int,
+) -> jnp.ndarray:
+    a = jnp.exp(params[:n_terms])
+    b = jnp.exp(params[n_terms:])
+    order = jnp.argsort(b)
+    a = a[order]
+    b = b[order]
+    pred = jnp.sum(a[:, None] * jnp.exp(-b[:, None] * d[None, :] ** 2), axis=0)
+    diff = pred - target
+    return jnp.sum(w * diff * diff)
+
+
 def _prepare_jax_funcs(
     d: np.ndarray,
     target: np.ndarray,
@@ -243,6 +261,24 @@ def _prepare_numpy_funcs_sorted(
     return obj, grad, hess
 
 
+def _prepare_jax_funcs_sorted(
+    d: np.ndarray,
+    target: np.ndarray,
+    w: np.ndarray,
+    n_terms: int,
+    compiled: bool = True,
+):
+    def obj(p):
+        return _objective_jax_sorted(p, d, target, w, n_terms)
+
+    if compiled:
+        jitted_obj = jax.jit(obj)
+        jitted_grad = jax.jit(jax.grad(obj))
+        jitted_hess = jax.jit(jax.hessian(obj))
+        return jitted_obj, jitted_grad, jitted_hess
+    return obj, jax.grad(obj), jax.hessian(obj)
+
+
 def bisection_line_search(
     f: Callable[[float], float],
     a: float = -1.0,
@@ -282,7 +318,7 @@ def newton_with_line_search(
     hess: Callable[[np.ndarray], np.ndarray],
     *,
     max_iter: int = 10,
-    tol: float = 1e-6,
+    grad_tol: float = 1e-6,
     compiled: bool = True,
     verbose: bool = False,
 ) -> tuple[np.ndarray, NewtonStats] | np.ndarray:
@@ -292,7 +328,7 @@ def newton_with_line_search(
     for i in range(max_iter):
         g = np.asarray(grad(x))
         n_iter += 1
-        if np.linalg.norm(g) < tol:
+        if np.linalg.norm(g) < grad_tol:
             break
         H = np.asarray(hess(x))
         try:
@@ -456,6 +492,39 @@ def _differential_evolution(
     return best, stats
 
 
+def _sort_params(p: np.ndarray, n_terms: int) -> np.ndarray:
+    order = np.argsort(p[n_terms:])
+    return np.concatenate([p[:n_terms][order], p[n_terms:][order]])
+
+
+def _differential_evolution_sorted(
+    obj: Callable[[np.ndarray], float],
+    n_terms: int,
+    *,
+    max_gen: int = 100,
+    pop_size: int = 15,
+    rng: np.random.Generator | None = None,
+    newton: Callable[[np.ndarray], np.ndarray] | None = None,
+    n_newton: int = 0,
+    mean: np.ndarray | float | None = None,
+    sigma: np.ndarray | float | None = None,
+    verbose: bool = False,
+) -> tuple[np.ndarray, DEStats]:
+    best, stats = _differential_evolution(
+        lambda p: obj(_sort_params(p, n_terms)),
+        None,
+        max_gen=max_gen,
+        pop_size=pop_size,
+        rng=rng,
+        newton=(lambda p: newton(_sort_params(p, n_terms))) if newton else None,
+        n_newton=n_newton,
+        mean=mean,
+        sigma=sigma,
+        verbose=verbose,
+    )
+    return _sort_params(best, n_terms), stats
+
+
 def fit_exp_sum(
     n_terms: int,
     x: ArrayLike,
@@ -562,7 +631,12 @@ def fit_exp_sum(
         def newton_fn(p: np.ndarray) -> np.ndarray:
             start = np.concatenate([np.exp(p[:n_terms]), p[n_terms:]])
             refined, _ = newton_with_line_search(
-                start, obj_n, grad_n, hess_n, max_iter=max_it, compiled=compiled
+                start,
+                obj_n,
+                grad_n,
+                hess_n,
+                max_iter=max_it,
+                compiled=compiled,
             )
             return np.concatenate([np.log(refined[:n_terms]), refined[n_terms:]])
 
@@ -627,6 +701,7 @@ def fit_exp_sum_sorted(
     n_newton: int = 2,
     de_mean: ArrayLike | None = None,
     de_sigma: ArrayLike | None = None,
+    compiled: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, DEStats]:
     """Fit ``func`` using differential evolution with sorted Newton steps."""
 
@@ -643,22 +718,23 @@ def fit_exp_sum_sorted(
     else:
         de_sigma = np.asarray(de_sigma, dtype=float)
 
-    def obj(p: np.ndarray) -> float:
-        return _objective_py_sorted(p, x, target, w, n_terms)
-
-    obj_n, grad_n, hess_n = _prepare_numpy_funcs_sorted(x, target, w, n_terms)
+    if compiled:
+        obj, grad_n, hess_n = _prepare_jax_funcs_sorted(
+            x, target, w, n_terms, compiled=True
+        )
+    else:
+        obj = lambda p: _objective_py_sorted(p, x, target, w, n_terms)
+        _, grad_n, hess_n = _prepare_numpy_funcs_sorted(x, target, w, n_terms)
 
     def newton_fn(p: np.ndarray) -> np.ndarray:
-        order = np.argsort(p[n_terms:])
-        sorted_p = np.concatenate([p[:n_terms][order], p[n_terms:][order]])
         refined, _ = newton_with_line_search(
-            sorted_p, obj_n, grad_n, hess_n, max_iter=1, compiled=False
+            p, obj, grad_n, hess_n, max_iter=1, compiled=compiled
         )
         return refined
 
-    params, info = _differential_evolution(
+    params, info = _differential_evolution_sorted(
         obj,
-        None,
+        n_terms,
         max_gen=max_gen,
         pop_size=pop_size,
         newton=newton_fn,
@@ -667,8 +743,6 @@ def fit_exp_sum_sorted(
         sigma=de_sigma,
         verbose=True,
     )
-
-    order = np.argsort(params[n_terms:])
-    a = np.exp(params[:n_terms])[order]
-    b = np.exp(params[n_terms:])[order]
+    a = np.exp(params[:n_terms])
+    b = np.exp(params[n_terms:])
     return a, b, info
