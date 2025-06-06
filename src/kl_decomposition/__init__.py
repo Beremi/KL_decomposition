@@ -1,8 +1,8 @@
 """KL decomposition utilities."""
 
+from .orthopoly import gauss_legendre_rule
 from .kernel_fit import (
     rectangle_rule,
-    gauss_legendre_rule,
     fit_exp_sum,
     fit_exp_sum_sorted,
     OptimiserOptions,
