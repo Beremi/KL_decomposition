@@ -404,8 +404,15 @@ def _differential_evolution(
 
 
 def _sort_params(p: np.ndarray, n_terms: int) -> np.ndarray:
+    """Return ``p`` with the second half sorted and first half permuted."""
     order = np.argsort(p[n_terms:])
     return np.concatenate([p[:n_terms][order], p[n_terms:][order]])
+
+
+def _sort_population(pop: np.ndarray, n_terms: int) -> None:
+    """Sort parameters of each individual in ``pop`` in-place."""
+    for i in range(pop.shape[0]):
+        pop[i] = _sort_params(pop[i], n_terms)
 
 
 def _differential_evolution_sorted(
@@ -421,19 +428,62 @@ def _differential_evolution_sorted(
     sigma: np.ndarray | float | None = None,
     verbose: bool = False,
 ) -> tuple[np.ndarray, DEStats]:
-    best, stats = _differential_evolution(
-        lambda p: obj(_sort_params(p, n_terms)),
-        None,
-        max_gen=max_gen,
-        pop_size=pop_size,
-        rng=rng,
-        newton=(lambda p: newton(_sort_params(p, n_terms))) if newton else None,
-        n_newton=n_newton,
-        mean=mean,
-        sigma=sigma,
-        verbose=verbose,
+    if mean is None:
+        mean = 1.0
+    if sigma is None:
+        sigma = 1.0
+    dim = 2 * n_terms
+    rng = rng or np.random.default_rng()
+    start = time.time()
+    eval_count = 0
+    pop = rng.normal(loc=mean, scale=sigma, size=(pop_size, dim))
+    _sort_population(pop, n_terms)
+    scores = np.array([obj(ind) for ind in pop])
+    eval_count += pop_size
+    history: list[float] = []
+
+    for gen in range(max_gen):
+        for i in range(pop_size):
+            a, b, c = pop[rng.choice(pop_size, 3, replace=False)]
+            mutant = a + 0.8 * (b - c)
+            cross = rng.random(dim) < 0.9
+            trial = np.where(cross, mutant, pop[i])
+            trial = _sort_params(trial, n_terms)
+            score = obj(trial)
+            eval_count += 1
+            if score < scores[i]:
+                pop[i] = trial
+                scores[i] = score
+
+        if newton is not None and n_newton > 0:
+            idx = np.argsort(scores)[:n_newton]
+            for i in idx:
+                refined = newton(pop[i])
+                if isinstance(refined, tuple):
+                    refined = refined[0]
+                refined = _sort_params(refined, n_terms)
+                s = obj(refined)
+                eval_count += 1
+                if s < scores[i]:
+                    pop[i] = refined
+                    scores[i] = s
+
+        best_gen = float(np.min(scores))
+        history.append(best_gen)
+        if verbose:
+            print(f"gen {gen}: best_score={best_gen:.2e}")
+
+    runtime = time.time() - start
+    best_idx = int(np.argmin(scores))
+    best = pop[best_idx]
+    stats = DEStats(
+        iterations=max_gen,
+        best_score=float(scores[best_idx]),
+        eval_count=eval_count,
+        history=history,
+        runtime=runtime,
     )
-    return _sort_params(best, n_terms), stats
+    return best, stats
 
 
 def fit_exp_sum(
