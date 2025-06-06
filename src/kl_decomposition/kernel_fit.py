@@ -137,24 +137,6 @@ def _objective_jax_newton(
     return jnp.sum(w * diff * diff)
 
 
-@functools.partial(jax.jit, static_argnums=(4,))
-def _objective_jax_sorted(
-    params: jnp.ndarray,
-    d: jnp.ndarray,
-    target: jnp.ndarray,
-    w: jnp.ndarray,
-    n_terms: int,
-) -> jnp.ndarray:
-    a = jnp.exp(params[:n_terms])
-    b = jnp.exp(params[n_terms:])
-    order = jnp.argsort(b)
-    a = a[order]
-    b = b[order]
-    pred = jnp.sum(a[:, None] * jnp.exp(-b[:, None] * d[None, :] ** 2), axis=0)
-    diff = pred - target
-    return jnp.sum(w * diff * diff)
-
-
 def _prepare_jax_funcs(
     d: np.ndarray,
     target: np.ndarray,
@@ -223,60 +205,6 @@ def _prepare_numpy_funcs(
         return H
 
     return obj, grad, hess
-
-
-def _prepare_numpy_funcs_sorted(
-    d: np.ndarray,
-    target: np.ndarray,
-    w: np.ndarray,
-    n_terms: int,
-):
-    def obj(p: np.ndarray) -> float:
-        return _objective_py_sorted(p, d, target, w, n_terms)
-
-    def grad(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:
-        g = np.zeros_like(p)
-        for i in range(len(p)):
-            step = np.zeros_like(p)
-            step[i] = eps
-            g[i] = (obj(p + step) - obj(p - step)) / (2 * eps)
-        return g
-
-    def hess(p: np.ndarray, eps: float = 1e-4) -> np.ndarray:
-        n = len(p)
-        H = np.zeros((n, n))
-        for i in range(n):
-            step_i = np.zeros_like(p)
-            step_i[i] = eps
-            for j in range(n):
-                step_j = np.zeros_like(p)
-                step_j[j] = eps
-                fpp = obj(p + step_i + step_j)
-                fpm = obj(p + step_i - step_j)
-                fmp = obj(p - step_i + step_j)
-                fmm = obj(p - step_i - step_j)
-                H[i, j] = (fpp - fpm - fmp + fmm) / (4 * eps**2)
-        return H
-
-    return obj, grad, hess
-
-
-def _prepare_jax_funcs_sorted(
-    d: np.ndarray,
-    target: np.ndarray,
-    w: np.ndarray,
-    n_terms: int,
-    compiled: bool = True,
-):
-    def obj(p):
-        return _objective_jax_sorted(p, d, target, w, n_terms)
-
-    if compiled:
-        jitted_obj = jax.jit(obj)
-        jitted_grad = jax.jit(jax.grad(obj))
-        jitted_hess = jax.jit(jax.hessian(obj))
-        return jitted_obj, jitted_grad, jitted_hess
-    return obj, jax.grad(obj), jax.hessian(obj)
 
 
 def bisection_line_search(
@@ -390,23 +318,6 @@ def _objective_py_newton(
 ) -> float:
     a = params[:n_terms]
     b = np.exp(params[n_terms:])
-    pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
-    diff = pred - target
-    return np.sum(w * diff * diff)
-
-
-def _objective_py_sorted(
-    params: np.ndarray,
-    d: np.ndarray,
-    target: np.ndarray,
-    w: np.ndarray,
-    n_terms: int,
-) -> float:
-    a = np.exp(params[:n_terms])
-    b = np.exp(params[n_terms:])
-    order = np.argsort(b)
-    a = a[order]
-    b = b[order]
     pred = np.sum(a[:, None] * np.exp(-b[:, None] * d[None, :] ** 2), axis=0)
     diff = pred - target
     return np.sum(w * diff * diff)
@@ -719,12 +630,13 @@ def fit_exp_sum_sorted(
         de_sigma = np.asarray(de_sigma, dtype=float)
 
     if compiled:
-        obj, grad_n, hess_n = _prepare_jax_funcs_sorted(
-            x, target, w, n_terms, compiled=True
+        obj, grad_n, hess_n = _prepare_jax_funcs(
+            x, target, w, n_terms, compiled=True, newton=False
         )
     else:
-        obj = lambda p: _objective_py_sorted(p, x, target, w, n_terms)
-        _, grad_n, hess_n = _prepare_numpy_funcs_sorted(x, target, w, n_terms)
+        obj, grad_n, hess_n = _prepare_numpy_funcs(
+            x, target, w, n_terms, newton=False
+        )
 
     def newton_fn(p: np.ndarray) -> np.ndarray:
         refined, _ = newton_with_line_search(
