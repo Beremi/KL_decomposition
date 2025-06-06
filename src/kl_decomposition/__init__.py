@@ -11,7 +11,13 @@ from .kernel_fit import (
     newton_with_line_search,
     bisection_line_search,
 )
-from .galerkin import assemble_block
+from .galerkin import (
+    assemble_block,
+    assemble_duffy,
+    assemble_gauss2d,
+    assemble_rectangle,
+    convergence_vs_ref,
+)
 
 __all__ = [
     "rectangle_rule",
@@ -24,4 +30,8 @@ __all__ = [
     "newton_with_line_search",
     "bisection_line_search",
     "assemble_block",
+    "assemble_duffy",
+    "assemble_gauss2d",
+    "assemble_rectangle",
+    "convergence_vs_ref",
 ]
