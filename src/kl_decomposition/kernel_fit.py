@@ -46,9 +46,11 @@ __all__ = [
     "rectangle_rule",
     "gauss_legendre_rule",
     "fit_exp_sum",
+    "fit_exp_sum_ce",
     "fit_exp_sum_sorted",
     "DEStats",
     "NewtonStats",
+    "CEStats",
 ]
 
 
@@ -112,6 +114,17 @@ class NewtonStats:
     """Statistics for Newton optimisation."""
 
     iterations: int
+    runtime: float
+
+
+@dataclass
+class CEStats:
+    """Statistics for the cross-entropy optimisation."""
+
+    iterations: int
+    best_score: float
+    eval_count: int
+    history: list
     runtime: float
 
 
@@ -435,7 +448,7 @@ def _differential_evolution_sorted(
     grad: Callable[[np.ndarray], np.ndarray] | None = None,
     grad_tol: float = 0.0,
     verbose: bool = False,
-) -> tuple[np.ndarray, DEStats]:
+    ) -> tuple[np.ndarray, DEStats]:
     if mean is None:
         mean = 1.0
     if sigma is None:
@@ -504,6 +517,57 @@ def _differential_evolution_sorted(
         grad_history=grad_history,
     )
     return best, stats
+
+
+def _cross_entropy(
+    obj: Callable[[np.ndarray], float],
+    *,
+    dim: int,
+    max_iter: int = 50,
+    pop_size: int = 50,
+    elite_frac: float = 0.1,
+    mean: np.ndarray | None = None,
+    cov: np.ndarray | None = None,
+    rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, CEStats]:
+    """Cross-entropy minimisation for ``obj``."""
+
+    rng = rng or np.random.default_rng()
+    mean = np.ones(dim) if mean is None else np.asarray(mean, dtype=float)
+    if cov is None:
+        cov = np.eye(dim)
+    cov = np.asarray(cov, dtype=float)
+
+    history: list[float] = []
+    eval_count = 0
+    start = time.time()
+    best_params = mean
+    best_score = float("inf")
+
+    elite_num = max(1, int(pop_size * elite_frac))
+
+    for it in range(max_iter):
+        samples = rng.multivariate_normal(mean, cov, size=pop_size)
+        scores = np.array([obj(s) for s in samples])
+        eval_count += pop_size
+        idx = np.argsort(scores)
+        elite = samples[idx[:elite_num]]
+        mean = elite.mean(axis=0)
+        cov = np.cov(elite, rowvar=False) + 1e-6 * np.eye(dim)
+        history.append(float(scores[idx[0]]))
+        if scores[idx[0]] < best_score:
+            best_score = float(scores[idx[0]])
+            best_params = samples[idx[0]]
+
+    runtime = time.time() - start
+    stats = CEStats(
+        iterations=len(history),
+        best_score=best_score,
+        eval_count=eval_count,
+        history=history,
+        runtime=runtime,
+    )
+    return best_params, stats
 
 
 def fit_exp_sum(
@@ -651,6 +715,54 @@ def fit_exp_sum(
     else:
         a = np.exp(params[:n_terms])
         b = np.exp(params[n_terms:])
+    return a, b, info
+
+
+def fit_exp_sum_ce(
+    n_terms: int,
+    x: ArrayLike,
+    w: ArrayLike,
+    func: Callable[[ArrayLike], ArrayLike],
+    *,
+    iterations: int = 50,
+    pop_size: int = 50,
+    elite_frac: float = 0.1,
+    ce_mean: ArrayLike | None = None,
+    ce_cov: ArrayLike | None = None,
+    compiled: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, CEStats]:
+    """Fit ``func`` using a cross-entropy search."""
+
+    x = np.asarray(x, dtype=float)
+    w = np.asarray(w, dtype=float)
+    target = np.asarray(func(x), dtype=float)
+
+    if ce_mean is None:
+        ce_mean = np.ones(2 * n_terms)
+    else:
+        ce_mean = np.asarray(ce_mean, dtype=float)
+    if ce_cov is None:
+        ce_cov = np.eye(2 * n_terms)
+    else:
+        ce_cov = np.asarray(ce_cov, dtype=float)
+
+    objective_fn = _objective_de if compiled else _objective_py_de
+
+    def obj(p: np.ndarray) -> float:
+        return objective_fn(p, x, target, w)
+
+    params, info = _cross_entropy(
+        obj,
+        dim=2 * n_terms,
+        max_iter=iterations,
+        pop_size=pop_size,
+        elite_frac=elite_frac,
+        mean=ce_mean,
+        cov=ce_cov,
+    )
+
+    a = np.exp(params[:n_terms])
+    b = np.exp(params[n_terms:])
     return a, b, info
 
 
