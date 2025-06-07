@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from kl_decomposition import rectangle_rule, fit_exp_sum
 from kl_decomposition.kernel_fit import fit_exp_sum_sorted
+from kl_decomposition.kernel_fit import fit_exp_sum_ce
 from kl_decomposition.kernel_fit import _objective_jax_de
 import jax.numpy as jnp
 
@@ -66,6 +67,14 @@ class TestKernelFit(unittest.TestCase):
         )
         self.assertTrue(np.all(np.isfinite(a)))
         self.assertTrue(np.all(np.isfinite(b)))
+
+    def test_cross_entropy(self):
+        x, w = rectangle_rule(0.0, 1.0, 20)
+        f = lambda t: np.exp(-t)
+        a, b, info = fit_exp_sum_ce(1, x, w, f, iterations=5, pop_size=20)
+        self.assertEqual(len(a), 1)
+        self.assertEqual(len(b), 1)
+        self.assertTrue(np.isfinite(info.best_score))
 
     def test_sorted_newton(self):
         x, w = rectangle_rule(0.0, 1.0, 20)
