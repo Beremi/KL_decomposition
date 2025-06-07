@@ -10,7 +10,7 @@ The package fits a low-rank separable approximation of the covariance kernel, as
 
 ## Key features
 
-* **Low-rank kernel fit** using JAX-based automatic differentiation or a hybrid global/​local optimiser (cross-entropy + trust-region Newton).  
+* **Low-rank kernel fit** using JAX-based automatic differentiation or a hybrid global/​local optimiser (differential evolution or cross-entropy search combined with Newton).
 * **Memory-lean Galerkin assembly** – every dense $m^{2d}$ block is replaced by a sum of $M$ Kronecker products of $m^{2}$ blocks.  
 * **Tensor Krylov eigensolver** that touches the full matrix only through `matmul`, enabling 2-D and 3-D KL decompositions on a laptop.  
 * Pure-Python, no compiled extensions.
@@ -25,7 +25,7 @@ The isotropic kernel is fitted in 1-D distance $d=\lVert\mathbf x-\mathbf y\rVer
 
 ![img](https://latex.codecogs.com/svg.image?{\color{Gray}C(d)\approx\sum_{k=1}^{M}%20a_k%20e^{-b_k%20d^{2}},})
 
-with $a_k,b_k>0$ optimised by differential evolution + Newton search.
+with $a_k,b_k>0$ optimised by differential evolution or a cross-entropy search followed by Newton refinement.
 
 ### 2 Galerkin matrix assembly
 
