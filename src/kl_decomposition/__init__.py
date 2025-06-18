@@ -1,6 +1,6 @@
 """KL decomposition utilities."""
 
-from .orthopoly import gauss_legendre_rule
+from .orthopoly import gauss_legendre_rule, gauss_legendre_rule_multilevel
 from .kernel_fit import (
     rectangle_rule,
     fit_exp_sum,
@@ -40,4 +40,5 @@ __all__ = [
     "assemble_rectangle",
     "convergence_vs_ref",
     "exp_kernel_eigen",
+    "gauss_legendre_rule_multilevel"
 ]
