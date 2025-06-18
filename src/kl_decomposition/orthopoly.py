@@ -1,3 +1,4 @@
+from typing import Tuple, Sequence
 import numpy as np
 from scipy.linalg import eigh_tridiagonal
 
@@ -6,6 +7,7 @@ __all__ = [
     "legendre_table",
     "shifted_legendre",
     "gauss_legendre_rule",
+    "gauss_legendre_rule_multilevel"
 ]
 
 
@@ -40,14 +42,99 @@ def shifted_legendre(n: int, x: np.ndarray, a: float, b: float) -> np.ndarray:
     return np.sqrt((2 * n + 1) / (b - a)) * eval_legendre(n, u)
 
 
-def gauss_legendre_rule(a: float, b: float, n: int) -> tuple[np.ndarray, np.ndarray]:
-    """Gauss--Legendre quadrature on [a, b] using Golub--Welsch."""
+def gauss_legendre_rule(a: float, b: float, n: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Classic n-point Gauss–Legendre rule on the interval [a, b] (Golub–Welsch).
+
+    Returns
+    -------
+    x : ndarray
+        Quadrature nodes.
+    w : ndarray
+        Corresponding weights.
+    """
     if n < 1:
         raise ValueError("n must be positive")
+
     i = np.arange(1, n, dtype=float)
-    beta = i / np.sqrt(4 * i * i - 1)
+    beta = i / np.sqrt(4.0 * i * i - 1.0)
     nodes, vecs = eigh_tridiagonal(np.zeros(n), beta)
     weights = 2.0 * (vecs[0] ** 2)
+
+    # affine map [-1,1] → [a,b]
     x = 0.5 * (b - a) * nodes + 0.5 * (b + a)
     w = 0.5 * (b - a) * weights
     return x, w
+
+
+def _make_breakpoints(a: float, b: float, L: int, ratio: float) -> Sequence[float]:
+    """
+    Compute the break-points that split [a,b] into a geometric sequence of
+    sub-intervals clustered near *a*.
+
+    For example with a = 0, b = 1, L = 3, ratio = 0.2 the list returned is
+    [0, 0.2**3, 0.2**2, 0.2, 1].
+    """
+    if not (0.0 < ratio < 1.0):
+        raise ValueError("ratio must lie in (0, 1)")
+    if L < 0:
+        raise ValueError("L must be non-negative")
+
+    if L == 0:
+        return [a, b]                         # no splitting
+
+    # geometric points measured from the *left* endpoint a
+    length = b - a
+    # ratio**L, ratio**(L-1), …, ratio**1
+    mids = [a + length * ratio**k for k in range(L, 0, -1)]
+    return [a, *mids, b]
+
+
+def gauss_legendre_rule_multilevel(
+    a: float,
+    b: float,
+    n: int,
+    L: int = 0,
+    ratio: float = 0.5,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Multi-level Gauss–Legendre rule on [a,b].
+
+    Parameters
+    ----------
+    a, b : float
+        Integration limits (``a`` < ``b``).  Typically ``a = 0`` for the
+        singular/peaky behaviour you described.
+    n : int
+        Degree of each *individual* Gauss–Legendre rule.
+    L : int, default 0
+        Number of *levels*.  ``L = 0`` means the usual single interval.
+        ``L ≥ 1`` splits the left part of the interval into ``L`` geometrically
+        shrinking sections, plus one final “catch-all’’ on the right.
+    ratio : float, default 0.5
+        Geometric ratio between successive break-points (must lie in (0, 1)).
+        Smaller values push more nodes towards the left endpoint.
+
+    Returns
+    -------
+    x : ndarray
+        All nodes on all sub-intervals (concatenated, sorted ascending).
+    w : ndarray
+        Corresponding weights (one weight per node).
+
+    Notes
+    -----
+    *Total* number of nodes = ``(L + 1) * n``.
+    """
+    breaks = _make_breakpoints(a, b, L, ratio)
+
+    xs, ws = [], []
+    for left, right in zip(breaks[:-1], breaks[1:]):
+        x, w = gauss_legendre_rule(left, right, n)
+        xs.append(x)
+        ws.append(w)
+
+    # Concatenate and (optionally) sort – the breakpoints are already ascending
+    x_all = np.concatenate(xs)
+    w_all = np.concatenate(ws)
+    return x_all, w_all
