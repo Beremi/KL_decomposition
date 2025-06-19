@@ -39,7 +39,7 @@ def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, qua
     coeff_b : float
         Coefficient of ``(x - y)^2`` in the Gaussian kernel ``exp(-b (x - y)^2)``.
     n : int
-        Number of Legendre polynomials ``\phi_i``.
+        Number of Legendre polynomials ``\\phi_i``.
     quad_order : int, optional
         Order of the Gauss--Legendre quadrature.
 
@@ -47,7 +47,7 @@ def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, qua
     -------
     ndarray
         ``n \times n`` Galerkin matrix ``A`` with
-        ``A[i, j] = \int_a^b \int_a^b e^{-b (x - y)^2} \phi_i(y) \phi_j(x) dy dx``.
+        ``A[i, j] = \\int_a^b \\int_a^b e^{-b (x - y)^2} \\phi_i(y) \\phi_j(x) dy dx``.
     """
     a, b_ = interval
     x, w = gauss_legendre_rule(a, b_, quad_order)

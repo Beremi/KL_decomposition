@@ -65,8 +65,8 @@ def exp_kernel_eigen(alpha: float, L: float = 1.0, n_cos: int = 3, n_sin: int = 
         ((n + 0.5) * np.pi + eps, (n + 1) * np.pi - eps) for n in range(n_sin)
     ]
 
-    f_cos = lambda w: np.tan(w * L) - w / alpha
-    f_sin = lambda w: np.tan(w * L) + alpha / w
+    def f_cos(w): return np.tan(w * L) - w / alpha
+    def f_sin(w): return np.tan(w * L) + alpha / w
 
     cos_freqs = np.array(_find_roots(f_cos, cos_intervals))
     sin_freqs = np.array(_find_roots(f_sin, sin_intervals))
