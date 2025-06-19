@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Tuple, Literal
-import functools
 import time
 
 import numpy as np
@@ -85,8 +84,6 @@ def rectangle_rule(
     x = a + (idx + 0.5) * h
     w = np.full_like(x, h, dtype=float)
     return x, w
-
-
 
 
 @dataclass
@@ -448,7 +445,7 @@ def _differential_evolution_sorted(
     grad: Callable[[np.ndarray], np.ndarray] | None = None,
     grad_tol: float = 0.0,
     verbose: bool = False,
-    ) -> tuple[np.ndarray, DEStats]:
+) -> tuple[np.ndarray, DEStats]:
     if mean is None:
         mean = 1.0
     if sigma is None:
