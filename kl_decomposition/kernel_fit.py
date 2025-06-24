@@ -361,6 +361,7 @@ def newton(f, grad, hess, x0,
             # print("Hessian not positive definite, using gradient descent")
             p = -gx
             trust *= 10
+        fx_old = fx
         # Backtracking line search
         alpha, fx = golden_section_search(
             lambda alpha: f(x + alpha * p),
@@ -370,10 +371,14 @@ def newton(f, grad, hess, x0,
         # Update
         x_new = x + alpha * p
         step_norm = np.linalg.norm(x_new - x)
+        while fx > fx_old:
+            alpha /= 2  # reduce step size
+            x_new = x + alpha * p
+            fx = f(x_new)
         x = x_new
 
         # Stall criterion
-        if step_norm < tol_step:
+        if step_norm < tol_step or fx >= fx_old:
             stall_count += 1
             if stall_count >= stall_iter:
                 break
@@ -522,12 +527,13 @@ def square_exp_approximations_newton(
     grad: Callable[[np.ndarray], np.ndarray],
     hess: Callable[[np.ndarray], np.ndarray],
     # defaults for Newton – customise at call-time if needed
-    tol_grad: float = 1e-9,
-    tol_step: float = 1e-9,
-    stall_iter: int = 500,
+    tol_grad: float = 1e-6,
+    tol_step: float = 1e-6,
+    stall_iter: int = 50,
     max_iter: int = 10_000,
     ls_bounds: Tuple[float, float] = (0.0, 1.0),
     verbose: bool = False,
+    verbose_newton: bool = False,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
     """
     Compute square-exponential approximations of orders 1 … max_terms.
@@ -558,7 +564,7 @@ def square_exp_approximations_newton(
             stall_iter=stall_iter,
             max_iter=max_iter,
             ls_bounds=ls_bounds,
-            verbose=False
+            verbose=verbose_newton
         )
         a_curr, b_curr = x_vals[:n_terms], x_vals[n_terms:]
         all_a.append(a_curr)
