@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+covariance_functions_approx.pdf
+duffy_precision_test.csv
