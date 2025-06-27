@@ -3,4 +3,4 @@ __pycache__/
 *.pyo
 .pytest_cache/
 covariance_functions_approx.pdf
-duffy_precision_test.csv
+duffy_precision_plots_time.pdf
