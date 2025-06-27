@@ -8,6 +8,7 @@ import numpy as np
 from .orthopoly import (
     gauss_legendre_rule,
     shifted_legendre,
+    leg_vals,
 )
 
 __all__ = [
@@ -15,61 +16,7 @@ __all__ = [
     "assemble_duffy",
     "assemble_gauss2d",
     "assemble_rectangle",
-    "convergence_vs_ref",
 ]
-
-
-def _legendre_phi(i: int, x: np.ndarray, a: float, b: float) -> np.ndarray:
-    """Evaluate shifted, L2-orthonormal Legendre polynomial."""
-    return shifted_legendre(i, x, a, b)
-
-
-# def leg_vals(n_max: int, x: np.ndarray) -> np.ndarray:
-#     """Values of orthonormal Legendre polynomials on ``[0, 1]``."""
-#     return legendre_table(n_max, x)
-def leg_vals(n: int, x: np.ndarray) -> np.ndarray:
-    """
-    Evaluate the first *n* orthonormal (shifted) Legendre polynomials
-    on the interval [0, 1].
-
-    Parameters
-    ----------
-    n : int
-        Number of polynomials to return (π̃₀ … π̃_{n-1}).
-    x : np.ndarray
-        Evaluation points in [0, 1].  May be any shape.
-
-    Returns
-    -------
-    vals : np.ndarray
-        Array of shape (n, *x.shape) with
-        vals[k] == π̃_k(x) for k = 0 … n-1.
-    """
-    if n <= 0:
-        raise ValueError("n must be a positive integer")
-
-    x = np.asarray(x, dtype=float)
-    vals = np.empty((n,) + x.shape, dtype=float)
-
-    # π̃₀(t) = 1
-    vals[0] = 1.0
-    if n == 1:
-        return vals
-
-    # π̃₁(t) = √3·(2t − 1)
-    vals[1] = np.sqrt(3.0) * (2.0 * x - 1.0)
-
-    # helper: α_k  (k ≥ 1)  ─ recurrence coefficient
-    def alpha(k: int) -> float:
-        return k / (2.0 * np.sqrt(4.0 * k * k - 1.0))
-
-    # three-term recurrence (k starts at 1 → produces π̃_{k+1})
-    for k in range(1, n - 1):
-        a_k = alpha(k)
-        a_k1 = alpha(k + 1)
-        vals[k + 1] = ((x - 0.5) / a_k1) * vals[k] - (a_k / a_k1) * vals[k - 1]
-
-    return vals
 
 
 def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, quad_order: int = 40) -> np.ndarray:
@@ -95,7 +42,7 @@ def assemble_block(interval: tuple[float, float], coeff_b: float, n: int, *, qua
     a, b_ = interval
     x, w = gauss_legendre_rule(a, b_, quad_order)
 
-    phi = np.array([_legendre_phi(i, x, a, b_) for i in range(n)])
+    phi = np.array([shifted_legendre(i, x, a, b_) for i in range(n)])
     weighted_phi = phi * w
 
     K = np.exp(-coeff_b * (x[:, None] - x[None, :]) ** 2)
@@ -279,12 +226,3 @@ def assemble_rectangle(f: float, degree: int, m: int) -> np.ndarray:
         A[np.ix_(odd, odd)] = wphi_odd @ K @ wphi_odd.T
 
     return A
-
-
-def convergence_vs_ref(
-    f: float, degree: int, g: float, quad_list: list[int], quad_ref: int
-) -> tuple[list[int], list[float]]:
-    """Convergence study helper for :func:`assemble_duffy`."""
-    A_ref = assemble_gauss2d(f, degree, quad_ref)
-    errs = [np.linalg.norm(assemble_duffy(f, degree, q, g) - A_ref) for q in quad_list]
-    return quad_list, errs
