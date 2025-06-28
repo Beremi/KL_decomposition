@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 covariance_functions_approx.pdf
 duffy_precision_plots_time.pdf
+kl_samples.pdf
+kl_eigenvalues.pdf
