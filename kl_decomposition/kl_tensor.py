@@ -41,6 +41,7 @@ from .orthopoly import leg_vals  # noqa: F401 (project‑local module)
 __all__ = [
     "spectral_blocks",
     "evaluate_eigenfunctions",
+    "generate_raandom_sample",
 ]
 
 
@@ -187,7 +188,7 @@ def spectral_blocks(
     for bits in product((0, 1), repeat=n):
         op = _make_block_operator(bits, even_blocks, odd_blocks, g_coeff)
         k = min(N_eval, op.shape[0] - 1)  # eigsh requires k < dim
-        w, v = eigsh(op, k=k, which="LA")
+        w, v = eigsh(op, k=k, which="LM")
         idx = np.argsort(w)[::-1]          # descending
         eigvals[bits] = w[idx]
         eigvecs[bits] = v[:, idx]
@@ -198,77 +199,89 @@ def spectral_blocks(
 # ================================================================================================ #
 # public 2 / 2 :  Evaluate eigenfunctions on a tensor grid
 # ================================================================================================ #
-
 def evaluate_eigenfunctions(
     eigvals: Dict[Tuple[int, ...], np.ndarray],
     eigvecs: Dict[Tuple[int, ...], np.ndarray],
-    grid_axes: Sequence[np.ndarray],
+    max_degree: int,
+    grid: np.ndarray,
 ) -> Tuple[np.ndarray, List[np.ndarray]]:
-    """Evaluate every eigenfunction on a tensor grid (vectorised).
+    """General evaluator for arbitrary spatial dimension *n*.
 
-    The algebraic eigenvectors in *eigvecs* are first reshaped into
-    tensors of shape ``dims + (N_eval,)`` per parity block and *all*
-    eigenfunctions of the block are projected onto the Legendre basis in
-    **one** `numpy.einsum` call.  This is both clearer and faster than a
-    per‑vector loop.
+    Assumes the **same 1‑D grid** (``grid``) and the **same polynomial
+    degree``max_degree`` in every dimension.
+
+    Parameters
+    ----------
+    eigvals / eigvecs
+        Output of :func:`spectral_blocks` for arbitrary `n`.
+    max_degree
+        Highest Legendre degree per dimension (must cover even/odd
+        blocks).  The local basis is split into even/odd subsets
+        automatically.
+    grid
+        One‑dimensional array of evaluation points in ``[0,1]`` – shared
+        by *all* dimensions.
+
+    Returns
+    -------
+    Λ, Ψ
+        Same layout as in the 1‑D and 2‑D helpers: a flat array of
+        eigenvalues and a list of eigenfunction arrays, each shaped
+        ``(len(grid),)*n``.
     """
+    # -------------------------------------------------------------------- #
+    # spatial dimension n inferred from any key in eigvals
+    n = len(next(iter(eigvals)))
 
-    n = len(grid_axes)
+    # 1. Legendre basis (once)
+    phi_all = leg_vals(max_degree, grid)        # (D, N)
+    phi_even, phi_odd = phi_all[0::2], phi_all[1::2]
+    d_even, d_odd = phi_even.shape[0], phi_odd.shape[0]
 
-    # --- infer local basis sizes ---------------------------------------- #
-    size_even_block = next(v.shape[0] for bits, v in eigvecs.items() if all(b == 0 for b in bits))
-    d_even = int(round(size_even_block ** (1 / n)))
-
-    size_odd_block = next(v.shape[0] for bits, v in eigvecs.items() if all(b == 1 for b in bits))
-    d_odd = int(round(size_odd_block ** (1 / n)))
-
-    d_max = max(d_even, d_odd)
-
-    # --- pre‑compute Legendre basis values ------------------------------ #
-    phi_full: List[np.ndarray] = [leg_vals(d_max, x) for x in grid_axes]  # (d_max, N_x)
-    phi_even: List[np.ndarray] = [phi[:d_even] for phi in phi_full]
-    phi_odd: List[np.ndarray] = [phi[:d_odd] for phi in phi_full]
-
-    # index labels for einsum ------------------------------------------- #
+    # 2. Build einsum signature dynamically -------------------------------- #
     import string
+    letters = string.ascii_letters  # 52 letters -> good up to n=25
+    if 2 * n + 1 > len(letters):
+        raise ValueError("Dimension too large for current einsum letter pool.")
 
-    coeff_idx = string.ascii_lowercase[:n]  # a, b, c, …  for coefficient axes
-    grid_idx = string.ascii_lowercase[n:2 * n]  # u, v, w, …  for grid axes
-    vec_idx = 'z'  # eigenvector index (last axis)
+    coeff_idx = letters[:n]                    # a, b, c, …
+    grid_idx = letters[n:2 * n]                # u, v, w, …
+    vec_idx = 'z'
 
-    # template:  "abc z, aU, bV, cW -> UVW z"  (for n=3)
     einsum_rhs = (
         f"{''.join(coeff_idx)}{vec_idx}, " +
-        ", ".join(f"{c}{g}" for c, g in zip(coeff_idx, grid_idx)) +
+        ', '.join(f"{c}{g}" for c, g in zip(coeff_idx, grid_idx)) +
         f" -> {''.join(grid_idx)}{vec_idx}"
     )
 
-    # -------------------------------------------------------------------- #
+    # 3. Loop over parity blocks ------------------------------------------- #
     lambdas: List[float] = []
     psi_grid: List[np.ndarray] = []
 
     for bits, w_block in eigvals.items():
-        v_block = eigvecs[bits]                 # (block_dim, N_eval)
+        v_block = eigvecs[bits]               # (block_dim, N_eval)
         N_eval_here = v_block.shape[1]
 
         dims = tuple(d_even if b == 0 else d_odd for b in bits)
-        coeff_tensor = v_block.reshape(*dims, N_eval_here)  # dims + (N_eval,)
+        coeff_tensor = v_block.reshape(*dims, N_eval_here)
 
-        # pick the right 1‑D bases for this parity pattern
-        phi_list = [phi_even[k] if bit == 0 else phi_odd[k] for k, bit in enumerate(bits)]
+        phi_list = [(phi_even if bit == 0 else phi_odd) for bit in bits]
 
-        # einsum: (dims,N_eval) × Π_k (d_k, N_xk)  → (grid..., N_eval)
         psi_all = np.einsum(einsum_rhs, coeff_tensor, *phi_list, optimize=True)
-        # move eigenvector axis to front? keep at end for consistency
 
         lambdas.extend(w_block.tolist())
-        # split the last axis into individual eigenfunctions
-        for i in range(N_eval_here):
-            psi_grid.append(psi_all[..., i])
+        psi_grid.extend([psi_all[..., k] for k in range(N_eval_here)])
 
-    # --- global descending sort ----------------------------------------- #
+    # 4. global sort ------------------------------------------------------- #
     order = np.argsort(lambdas)[::-1]
     Λ = np.asarray(lambdas)[order]
     Ψ = [psi_grid[i] for i in order]
 
     return Λ, Ψ
+
+
+def generate_raandom_sample(lambdas_sorted, psi_sorted):
+    sample = np.zeros_like(psi_sorted[0])
+    for lambda_val, psi in zip(lambdas_sorted, psi_sorted):
+        sample += np.random.randn() * np.sqrt(max(lambda_val, 0)) * psi
+    return sample
