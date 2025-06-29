@@ -6,3 +6,5 @@ covariance_functions_approx.pdf
 duffy_precision_plots_time.pdf
 kl_samples.pdf
 kl_eigenvalues.pdf
+residual_convergence.pdf
+kl_decomp_errors.pdf

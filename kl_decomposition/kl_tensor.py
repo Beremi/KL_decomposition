@@ -28,12 +28,14 @@ evaluate_eigenfunctions( … )  # ψ_j(x_1,…,x_n) on a tensor grid
 ```
 """
 from __future__ import annotations
+from functools import reduce
 
 from itertools import product
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple, Callable
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
+from scipy.linalg import eigh
 
 # local import for 1‑D basis functions -------------------------------------------------------------
 from .orthopoly import leg_vals  # noqa: F401 (project‑local module)
@@ -42,6 +44,7 @@ __all__ = [
     "spectral_blocks",
     "evaluate_eigenfunctions",
     "generate_raandom_sample",
+    "evaluate_eigenfunctions_1d",
 ]
 
 
@@ -149,6 +152,50 @@ def _make_block_operator(
     )
 
 
+def _make_block_matrix(
+    bits: Tuple[int, ...],
+    even_blocks: Sequence[np.ndarray],
+    odd_blocks: Sequence[np.ndarray],
+    g_coeff: Sequence[float],
+) -> np.ndarray:
+    """
+    Dense matrix representing one parity block.
+
+    Parameters
+    ----------
+    bits
+        Parity pattern (0|1,…,0|1) of length n.
+    even_blocks / odd_blocks
+        Dense matrices E_k / O_k (len == M).
+    g_coeff
+        Scalars g_k (len == M).
+
+    Returns
+    -------
+    op_mat
+        A (size × size) ndarray, where size = ∏_d dims[d], dims[d] =
+        even_blocks[0].shape[0] if bits[d]==0 else odd_blocks[0].shape[0].
+    """
+    M = len(g_coeff)
+    # dims for each tensor axis
+    dims = [
+        even_blocks[0].shape[0] if b == 0 else odd_blocks[0].shape[0]
+        for b in bits
+    ]
+    size = int(np.prod(dims))
+
+    # accumulate sum_k g_k * ⨂_d (E_k or O_k)
+    op_mat = np.zeros((size, size), dtype=even_blocks[0].dtype)
+    for k in range(M):
+        # pick the correct block for each axis
+        mats = [even_blocks[k] if b == 0 else odd_blocks[k] for b in bits]
+        # form the Kronecker product of all mats using numpy.kron
+        K = reduce(lambda A, B: np.kron(A, B), mats)
+        op_mat += g_coeff[k] * K
+
+    return op_mat
+
+
 # ================================================================================================ #
 # public 1 / 2 :  Lanczos diagonalisation per block
 # ================================================================================================ #
@@ -187,8 +234,12 @@ def spectral_blocks(
 
     for bits in product((0, 1), repeat=n):
         op = _make_block_operator(bits, even_blocks, odd_blocks, g_coeff)
-        k = min(N_eval, op.shape[0] - 1)  # eigsh requires k < dim
-        w, v = eigsh(op, k=k, which="LM")
+        k = min(N_eval, op.shape[0])  # eigsh requires k < dim
+        if op.shape[0] == k:
+            M = _make_block_matrix(bits, even_blocks, odd_blocks, g_coeff)
+            w, v = eigh(M)             # returns (eigenvalues, eigenvectors)
+        else:
+            w, v = eigsh(op, k=k, which="LM")
         idx = np.argsort(w)[::-1]          # descending
         eigvals[bits] = w[idx]
         eigvecs[bits] = v[:, idx]
@@ -274,10 +325,82 @@ def evaluate_eigenfunctions(
 
     # 4. global sort ------------------------------------------------------- #
     order = np.argsort(lambdas)[::-1]
-    Λ = np.asarray(lambdas)[order]
-    Ψ = [psi_grid[i] for i in order]
+    eigenvalues = np.asarray(lambdas)[order]
+    eigenvectors_on_grid = [psi_grid[i] for i in order]
 
-    return Λ, Ψ
+    return eigenvalues, eigenvectors_on_grid
+
+
+def evaluate_eigenfunctions_1d(
+    eigvals: Dict[Tuple[int], np.ndarray],
+    eigvecs: Dict[Tuple[int], np.ndarray],
+    max_degree: int
+) -> Tuple[np.ndarray, List[Callable[[np.ndarray], np.ndarray]]]:
+    """
+    1-D version that returns ψ-functions rather than pre-evaluated grids.
+
+    Parameters
+    ----------
+    eigvals / eigvecs : output of ``spectral_blocks`` for n = 1
+        • keys are ``(0,)`` for the even block, ``(1,)`` for the odd block
+        • ``eigvecs[(b,)].shape == (d_block, N_fns_block)``
+    max_degree : int
+        Highest Legendre degree used in the local basis.
+    leg_vals : callable
+        Same utility you already call in 2-D/3-D code:
+            ``phi = leg_vals(max_degree, x)   # shape (max_degree+1, |x|)``
+        It must return the *shifted* Legendre values on [0, 1].
+
+    Returns
+    -------
+    Λ : (N,)  array
+        Eigenvalues sorted from largest to smallest.
+    Ψ : list[callable]
+        One callable per eigenfunction.  Each ψ(x) accepts
+        an arbitrary NumPy array ``x`` (any shape, broadcastable)
+        with entries in [0, 1] and returns an array of the same shape.
+    """
+    D_tot = max_degree
+    d_odd = max_degree // 2         # #even orders ≤ max_degree
+    d_even = D_tot - d_odd              # #odd  orders ≤ max_degree
+
+    lambdas: List[float] = []
+    psi_list: List[Callable[[np.ndarray], np.ndarray]] = []
+
+    for bits, w_block in eigvals.items():       # bits is (0,) or (1,)
+        v_block = eigvecs[bits]                # (d_even|odd, N_block)
+        parity = bits[0]                      # 0 = even, 1 = odd
+        d_block = d_even if parity == 0 else d_odd
+        assert v_block.shape[0] == d_block
+
+        # --- create one closure per eigenfunction in this block ---------- #
+        for k, λ in enumerate(w_block):
+            coeff = v_block[:, k].copy()        # 1-D coefficients
+
+            def _make_psi(coeff=coeff, parity=parity):
+                """Return ψ(x) with coeff & parity bound."""
+                def ψ(x: np.ndarray) -> np.ndarray:
+                    x_arr = np.asarray(x)
+                    flat = x_arr.ravel()                     # 1-D view
+
+                    phi_all = leg_vals(max_degree, flat)     # (D_tot, M)
+                    phi_sel = phi_all[0::2] if parity == 0 else phi_all[1::2]
+
+                    res = coeff @ phi_sel                    # dot → (M,)
+                    return res.reshape(x_arr.shape)
+
+                ψ.__doc__ = f"Eigenfunction for Λ = {λ:.6e}, parity={parity}"
+                return ψ
+
+            psi_list.append(_make_psi())
+            lambdas.append(float(λ))
+
+    # -------- global sort by eigenvalue (descending) -------------------- #
+    order = np.argsort(lambdas)[::-1]
+    eigenvalues_sorted = np.asarray(lambdas)[order]
+    eigenfunctions_sorted = [psi_list[i] for i in order]
+
+    return eigenvalues_sorted, eigenfunctions_sorted
 
 
 def generate_raandom_sample(lambdas_sorted, psi_sorted):
