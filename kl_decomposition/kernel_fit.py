@@ -517,6 +517,37 @@ def interp_extrap_linear_mid(b_old, n_terms, domain=(0.0, 1.0)):
     return b_new
 
 
+def initial_guess_b(b_old: np.ndarray, b_old_old: np.ndarray, ratios: np.ndarray) -> np.ndarray:
+    """
+    Generate an initial guess for the next b-coefficients based on the last two.
+
+    Parameters
+    ----------
+    b_old : 1-D numpy array
+        Last computed b-coefficients.
+    b_old_old : 1-D numpy array
+        Second last computed b-coefficients.
+    ratios : 1-D numpy array, optional
+        Ratios of the last two b-coefficients, used for extrapolation.
+
+    Returns
+    -------
+    b_new : 1-D numpy array
+        Initial guess for the next b-coefficients.
+    """
+    if ratios is None:
+        ratios = np.array([0.5])
+    else:
+        ratios = np.hstack((ratios, np.array(ratios[-1])))
+
+    new_start = b_old[0] + (b_old[0] - b_old_old[0])
+    new_end = b_old[-1] + (b_old[-1] - b_old_old[-1])
+
+    new_mid = b_old[:-1] * ratios + b_old[1:] * (1 - ratios)
+    b_new = np.concatenate(([new_start], new_mid, [new_end]))
+    return b_new
+
+
 def square_exp_approximations_newton(
     max_terms: int,
     precision: float,
@@ -577,22 +608,31 @@ def square_exp_approximations_newton(
     # --- order 1 ----------------------------------------------------------
     b_guess = np.array([0.0])
     a_guess = optimal_a(x, w, target, np.exp(b_guess))
-    x_prev = _optimise(np.concatenate((a_guess, b_guess)), 1)
+    _ = _optimise(np.concatenate((a_guess, b_guess)), 1)
 
     # --- order 2 ----------------------------------------------------------
     if max_terms >= 2:
         b_guess = np.array([all_b[-1][0] - 1.0, all_b[-1][0] + 1.0])
         a_guess = optimal_a(x, w, target, np.exp(b_guess))
-        x_prev = _optimise(np.concatenate((a_guess, b_guess)), 2)
+        _ = _optimise(np.concatenate((a_guess, b_guess)), 2)
 
     # --- orders 3 … max_terms --------------------------------------------
+    ratios = None
+
     for n_terms in range(3, max_terms + 1):
         # previous x_prev is [a₁…a_{n-1}, b₁…b_{n-1}]
-        b_old = x_prev[n_terms - 1:]           # grab the (n-1) previous b's
-        b_new = interp_extrap_linear_mid(b_old, n_terms)
+        b_old = all_b[-1]           # grab the (n-1) previous b's
+        b_old_old = all_b[-2]
+
+        b_new = initial_guess_b(b_old, b_old_old, ratios=ratios)
         a_new = optimal_a(x, w, target, np.exp(b_new))
         means = np.concatenate((a_new, b_new))
-        x_prev = _optimise(means, n_terms)
+        _ = _optimise(means, n_terms)
+        # print(b_new)
+        # print(all_b[-1])
+
+        ratios = (all_b[-1][1:-1] - all_b[-2][1:]) / (all_b[-2][:-1] - all_b[-2][1:])
+        # print(ratios)
         if all_vals[-1] < precision:
             if verbose:
                 print(f"Early stop at n_terms={n_terms} with obj={all_vals[-1]:.6e}")
