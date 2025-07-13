@@ -1,6 +1,7 @@
 """Assembly of 1-D Galerkin blocks."""
 
 from __future__ import annotations
+import opt_einsum as oe
 from typing import Optional
 
 import numpy as np
@@ -117,68 +118,50 @@ def assemble_duffy(
     gy: Optional[float] = None,
 ) -> np.ndarray:
     """
-    Duffy-split assembly on [0,1] with polynomial stretching.
-    Same output as `assemble_duffy`, but avoids redundant evaluations
-    of Legendre bases on identical coordinates.
+    Duffy-split assembly on [0,1]×[0,1] with polynomial stretching.
+    Uses the parity relation P̃_k(1-t)=(-1)^k P̃_k(t) to
+    * evaluate each Legendre basis only once, and
+    * perform only one tensor contraction per parity block
+      (the second contribution is identical, so we just double it).
     """
     if gy is None:
         gy = gx
 
-    # -- quadrature rule -----------------------------------------------------
+    # ---------------------------------------------------------------- quadrature
     xi, wx = gauss_legendre_rule(0.0, 1.0, quad)           # (N,), (N,)
     N = xi.size
 
-    # -- 1-D stretched coordinates ------------------------------------------
-    u = xi ** gx                                            # shape (N,)
-    v = xi ** gy                                            # shape (N,)
+    # -------------------------------------------------------------- stretch maps
+    u = xi ** gx                                           # (N,)
+    v = xi ** gy                                           # (N,)
+    U, V = u[:, None], v[None, :]                          # (N,1), (1,N)
 
-    # promote to 2-D with broadcasting (no copies)
-    U = u[:, None]                                          # (N,1)
-    V = v[None, :]                                          # (1,N)
-
-    # -- Jacobian, kernel and weights ---------------------------------------
+    # -------------------------------------------------------------- weight term
     J = gx * gy * (xi ** (gx - 1))[:, None] * (xi ** (gy - 1))[None, :]
-    Khat = J * U * np.exp(-f * (U * V) ** 2)               # (N,N)
-    W = np.outer(wx, wx)                                # (N,N)
-    weight = W * Khat                                       # (N,N)
+    Khat = J * U * np.exp(-f * (U * V) ** 2)             # (N,N)
+    weight = np.outer(wx, wx) * Khat                       # (N,N)
 
-    # -- mapped points -------------------------------------------------------
-    #  block 1
-    # x1 = U                         # (N,1) … constant in 'n'
-    y1 = (1.0 - V) * U             # (N,N)
-    #  block 2
-    # x2 = 1.0 - U                   # (N,1)
-    y2 = (V - 1.0) * U + 1.0       # (N,N)
+    # -------------------------------------------------------------- mapped grid
+    y1 = (1.0 - V) * U                                     # (N,N)
 
-    # -- Legendre basis values ----------------------------------------------
-    #  x-direction: only N distinct points → evaluate once
-    phi_x1 = leg_vals(degree, u)           # (deg, N)
-    phi_x2 = leg_vals(degree, 1.0 - u)     # (deg, N)
+    # -------------------------------------------------------------- basis values
+    phi_x = leg_vals(degree, u)[:, :, None]                # (deg,N,1)
+    phi_y = leg_vals(degree, y1.ravel()).reshape(degree, N, N)  # (deg,N,N)
 
-    #  y-direction: full grid still needed
-    phi_y1 = leg_vals(degree, y1.ravel()).reshape(degree, N, N)
-    phi_y2 = leg_vals(degree, y2.ravel()).reshape(degree, N, N)
-
-    # add a singleton axis so einsum can broadcast along 'n'
-    phi_x1 = phi_x1[:, :, None]            # (deg, N, 1)
-    phi_x2 = phi_x2[:, :, None]            # (deg, N, 1)
-
-    # -- assemble ------------------------------------------------------------
+    # -------------------------------------------------------------- assemble
     A = np.zeros((degree, degree))
     even = np.arange(0, degree, 2)
     odd = np.arange(1, degree, 2)
 
     if even.size:
-        A[np.ix_(even, even)] = (
-            np.einsum("mn,imn,jmn->ij", weight, phi_x1[even], phi_y1[even])
-            + np.einsum("mn,imn,jmn->ij", weight, phi_x2[even], phi_y2[even])
-        )
+        block = oe.contract("mn,imn,jmn->ij",
+                            weight, phi_x[even], phi_y[even], optimize=True)
+        A[np.ix_(even, even)] = 2.0 * block                # region-1 + region-2
 
     if odd.size:
-        A[np.ix_(odd, odd)] = (
-            np.einsum("mn,imn,jmn->ij", weight, phi_x1[odd], phi_y1[odd])
-            + np.einsum("mn,imn,jmn->ij", weight, phi_x2[odd], phi_y2[odd])
-        )
+        block = oe.contract("mn,imn,jmn->ij",
+                            weight, phi_x[odd], phi_y[odd], optimize=True)
+        A[np.ix_(odd, odd)] = 2.0 * block                  # region-1 + region-2
 
     return A
 
