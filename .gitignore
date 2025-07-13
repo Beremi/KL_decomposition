@@ -9,3 +9,7 @@ kl_eigenvalues.pdf
 residual_convergence.pdf
 kl_decomp_errors.pdf
 b_coefficients_all_kernels.pdf
+duffy_precision_plots_time_30_relative.pdf
+duffy_precision_plots_time_30.pdf
+duffy_precision_plots_time_60_relative.pdf
+duffy_precision_plots_time_60.pdf

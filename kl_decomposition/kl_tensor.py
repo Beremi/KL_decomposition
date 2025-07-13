@@ -36,6 +36,7 @@ from typing import Dict, List, Sequence, Tuple, Callable
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
 from scipy.linalg import eigh
+import opt_einsum as oe
 
 # local import for 1‑D basis functions -------------------------------------------------------------
 from .orthopoly import leg_vals  # noqa: F401 (project‑local module)
@@ -71,7 +72,7 @@ def _left_mult_axis(X: np.ndarray, M: np.ndarray, axis: int) -> np.ndarray:
         New tensor with ``Y.shape[axis] == d_out``.
     """
     X_move = np.moveaxis(X, axis, 0)            # (d_in, …)
-    Y = np.einsum("ij,j...->i...", M, X_move)   # contraction along first index
+    Y = oe.contract("ij,j...->i...", M, X_move, optimize=True)   # contraction along first index
     return np.moveaxis(Y, 0, axis)
 
 
@@ -318,7 +319,7 @@ def evaluate_eigenfunctions(
 
         phi_list = [(phi_even if bit == 0 else phi_odd) for bit in bits]
 
-        psi_all = np.einsum(einsum_rhs, coeff_tensor, *phi_list, optimize=True)
+        psi_all = oe.contract(einsum_rhs, coeff_tensor, *phi_list, optimize=True)
 
         lambdas.extend(w_block.tolist())
         psi_grid.extend([psi_all[..., k] for k in range(N_eval_here)])
