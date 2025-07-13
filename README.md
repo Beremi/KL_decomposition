@@ -19,6 +19,23 @@ Béreš, M., Legendre polynomials and their use for Karhunen--Loève expansion, 
 
 ---
 
+## Repository structure
+
+```
+kl_decomposition/     Python package with algorithms
+├── kernel_fit.py     – optimise squared–exponential kernel fits
+├── galerkin.py       – assemble 1‑D Galerkin blocks
+├── kl_tensor.py      – tensor‑product eigendecomposition
+├── orthopoly.py      – Legendre basis utilities
+├── exp_kernel.py     – analytic eigenpairs of exp(|x−y|) kernel
+├── error_estimates.py– helper error norms
+└── misc.py           – convenience wrappers
+data/                 Precomputed kernel fits (JSON files)
+*.ipynb               Demonstration notebooks
+```
+
+---
+
 ## Computation pipeline
 
 ### 1 Approximation of the autocovariance
@@ -71,6 +88,59 @@ We keep the cost **independent of** $b_i$ with two tricks.
 
 * **JAX** – gradient-based kernel fit
 * **NumPy & SciPy** – matrix assembly, quadrature, linear algebra
+
+---
+
+## Quickstart
+
+```python
+import numpy as np
+from kl_decomposition import kernel_fit, galerkin, kl_tensor
+
+# 1) squared exponential fit of exp(-d**2)
+d = np.linspace(0.0, 3.0, 200)
+w = np.full_like(d, d[1]-d[0])
+target = np.exp(-d**2)
+obj, grad, hess = kernel_fit.build_se_obj_grad_hess(d, w, target)
+a_all, b_all, _ = kernel_fit.square_exp_approximations_newton(
+    max_terms=3,
+    precision=1e-12,
+    x=d,
+    w=w,
+    target=target,
+    obj=obj,
+    grad=grad,
+    hess=hess,
+)
+a_coeff = a_all[-1]
+b_coeff = np.exp(b_all[-1])
+
+# 2) Galerkin blocks (1‑D example)
+degree = 40
+A_all = [galerkin.assemble_block((0.0, 1.0), b, degree) for b in b_coeff]
+
+# 3) eigen-decomposition and values on a grid
+eigvals, eigvecs = kl_tensor.spectral_blocks(A_all, a_coeff, n=1)
+grid = np.linspace(0.0, 1.0, 200)
+lambdas, psi_grid = kl_tensor.evaluate_eigenfunctions(eigvals, eigvecs, degree, grid)
+```
+
+The lists `lambdas` and `psi_grid` contain the sorted eigenvalues and the corresponding eigenfunctions evaluated on `grid`.
+
+---
+
+## Demonstration notebooks
+
+| Notebook | Purpose |
+| --- | --- |
+| `kernels_fit.ipynb` | Fit squared exponential approximations to several standard kernels and save them to `data/*.json`. |
+| `plot_kernel_fits.ipynb` | Visualize the distribution of $b$ coefficients for all stored kernel fits. |
+| `assembly_demo.ipynb` | Benchmark Duffy-mapped and Gauss-Legendre quadrature for assembling Galerkin blocks. |
+| `kl_decomposition.ipynb` | Load precomputed fits and build KL decompositions in 2‑D. |
+| `eigenfunctions_exp_cov.ipynb` | Show the eigenfunctions of a 2‑D exponential covariance kernel. |
+| `exponential_kernel_eig.ipynb` | Demonstrate analytic eigenpairs of the 1‑D exponential kernel. |
+| `error_covariance.ipynb` | Compare approximate KL modes with precise decompositions for exponential and Matérn kernels. |
+| `residual_1D.ipynb` | Tabulate reference eigenvalues for 1‑D kernels and plot residual errors. |
 
 ---
 
